@@ -72,6 +72,7 @@
 
   Example #3:
 
+	#define WDL_BESSEL_DENORMAL_AGGRESSIVE
 	#include "besselfilter.h"
 
 	int order = 8;
@@ -103,6 +104,21 @@
 #include <assert.h>
 
 #include "wdltypes.h"
+
+// By default denormals are zeroed to prevent exessive CPU use. Defining
+// WDL_BESSEL_DENORMAL_IGNORE will disable denormal filtering. Defining
+// WDL_BESSEL_DENORMAL_AGGRESSIVE will filter out denormals more
+// aggressively by zeroing anything below 5.6e-017.
+#ifndef WDL_BESSEL_DENORMAL_IGNORE
+	#include "denormal.h"
+	#if defined(WDL_BESSEL_DENORMAL_AGGRESSIVE)
+		#define WDL_BESSEL_FIX_DENORMAL(a) (denormal_fix_double_aggressive(a))
+	#else
+		#define WDL_BESSEL_FIX_DENORMAL(a) (denormal_fix_double(a))
+	#endif
+#else
+	#define WDL_BESSEL_FIX_DENORMAL(a) ((void)0)
+#endif
 
 
 // Defining WDL_BESSEL_FILTER_ORDER will make the Bessel filter order fixed,
@@ -369,6 +385,7 @@ public:
 			+ WDL_BESSEL_FILTER_OUTPUT(2)
 		#endif
 		+ WDL_BESSEL_FILTER_OUTPUT(1);
+		WDL_BESSEL_FIX_DENORMAL(&mOutput[0]);
 	}
 
 	inline void Process(const double input, const WDL_BesselFilterCoeffs* const bessel) { Process(input, bessel->mCoeffs); }
@@ -380,8 +397,9 @@ public:
 		double output = coeffs[0] * input;
 		for (int i = order; i > 0; --i)
 		{
-			mOutput[i] = mOutput[i - 1];;
+			mOutput[i] = mOutput[i - 1];
 			output += coeffs[i] * mOutput[i];
+			WDL_BESSEL_FIX_DENORMAL(&output);
 		}
 		mOutput[0] = output;
 	}
