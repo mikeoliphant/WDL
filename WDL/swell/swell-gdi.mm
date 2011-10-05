@@ -616,7 +616,7 @@ BOOL GetTextMetrics(HDC ctx, TEXTMETRIC *tm)
   //float leading=[curfont leading];
   float ch=[curfont capHeight];
   
-  NSRect br=[curfont boundingRectForFont];
+  //NSRect br=[curfont boundingRectForFont];
  
   tm->tmAscent = (int)(asc + 0.5);
   tm->tmDescent = (int)(-desc + 0.5);
@@ -870,8 +870,6 @@ int DrawText(HDC ctx, const char *buf, int buflen, RECT *r, int align)
   NSStringDrawingOptions opt = NSStringDrawingUsesFontLeading;
   NSSize sz={0,0};//[as size];
   NSRect rsz=[str boundingRectWithSize:sz options:opt attributes:dict];
-  TEXTMETRIC tm;
-  GetTextMetrics(ctx,&tm);
         
   sz=rsz.size;
   
@@ -901,7 +899,12 @@ int DrawText(HDC ctx, const char *buf, int buflen, RECT *r, int align)
     {
       drawr.size.height=sz.height;
     }
-  	drawr.origin.y+=tm.tmAscent;
+
+    {
+      NSFont* nsf = [dict objectForKey:NSFontAttributeName];
+      float asc = [nsf ascender];
+      drawr.origin.y += (int)(asc + 0.5);
+    }
     
     if (align & DT_NOCLIP) // no clip, grow drawr if necessary (preserving alignment)
     {
