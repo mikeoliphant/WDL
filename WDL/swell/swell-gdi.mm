@@ -521,28 +521,51 @@ HFONT CreateFont(int lfHeight, int lfWidth, int lfEscapement, int lfOrientation,
     fontwid *= 0.95;
         
     NSString *str=CStringToNSString(lfFaceName);
+  #if MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_5
     NSFont *nsf=[NSFont fontWithName:str size:fontwid];
     if (!nsf) nsf=[NSFont labelFontOfSize:fontwid];
     if (!nsf) nsf=[NSFont systemFontOfSize:fontwid];
+  #else
+    CTFontRef nsf = CTFontCreateWithName((CFStringRef)str, fontwid, NULL);
+    if (!nsf) nsf = CTFontCreateUIFontForLanguage(kCTFontLabelFontType, fontwid, NULL);
+    if (!nsf) nsf = CTFontCreateUIFontForLanguage(kCTFontSystemFontType, fontwid, NULL);
+  #endif
     [str release];
     
     font->fontdict=[[NSMutableDictionary alloc] initWithCapacity:8];
 
-    if (nsf) [font->fontdict setObject:nsf forKey:NSFontAttributeName];
+    if (nsf) [font->fontdict setObject:(NSFont*)nsf forKey:NSFontAttributeName];
     
     if (lfItalic) // italic
     {
+    #if MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_5
       [font->fontdict setObject:[NSNumber numberWithFloat:0.33] forKey:NSObliquenessAttributeName];
+    #else
+      float f = 0.33;
+      CFNumberRef p = CFNumberCreate(kCFAllocatorDefault, kCFNumberFloatType, &f);
+      [font->fontdict setObject:(NSNumber*)p forKey:NSObliquenessAttributeName];
+    #endif
     }
     if (lfUnderline)
     {
+    #if MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_5
       [font->fontdict setObject:[NSNumber numberWithInt:NSUnderlineStyleSingle] forKey:NSUnderlineStyleAttributeName];
+    #else
+      int i = NSUnderlineStyleSingle;
+      CFNumberRef p = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &i);
+      [font->fontdict setObject:(NSNumber*)p forKey:NSUnderlineStyleAttributeName];
+    #endif
     }
     int weight=lfWeight;
     if (weight>=FW_BOLD)
     {
-      float sc = min(fontwid,15.0)*0.55;
-      [font->fontdict setObject:[NSNumber numberWithFloat:-sc] forKey:NSStrokeWidthAttributeName];
+      float sc = -min(fontwid,15.0)*0.55;
+    #if MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_5
+      [font->fontdict setObject:[NSNumber numberWithFloat:sc] forKey:NSStrokeWidthAttributeName];
+    #else
+      CFNumberRef p = CFNumberCreate(kCFAllocatorDefault, kCFNumberFloatType, &sc);
+      [font->fontdict setObject:(NSNumber*)p forKey:NSStrokeWidthAttributeName];
+    #endif
     }
 
     font->font_quality = (!lfQuality || lfQuality == ANTIALIASED_QUALITY || lfQuality == NONANTIALIASED_QUALITY ? lfQuality : 0);
