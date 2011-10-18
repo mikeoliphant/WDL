@@ -178,7 +178,14 @@ void DeleteObject(HGDIOBJ pen)
       if (p->type == TYPE_PEN || p->type == TYPE_BRUSH)
         if (p->wid<0) return;
       if (p->color) CGColorRelease(p->color);
-      if (p->fontdict) [p->fontdict release];
+      if (p->fontdict)
+      {
+      #if MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_5
+        NSFont* nsf = [p->fontdict objectForKey:NSFontAttributeName];
+        if (nsf) CFRelease((CTFontRef)nsf);
+      #endif
+        [p->fontdict release];
+      }
       if (p->font_style) ATSUDisposeStyle(p->font_style);
       if (p->wid && p->bitmapptr) [p->bitmapptr release]; 
       GDP_OBJECT_DELETE(p);
