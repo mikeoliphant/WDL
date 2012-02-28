@@ -23,6 +23,7 @@ const char * const z_errmsg[10] = {
 "incompatible version",/* Z_VERSION_ERROR (-6) */
 ""};
 
+#if 0
 
 const char * ZEXPORT zlibVersion()
 {
@@ -91,6 +92,7 @@ uLong ZEXPORT zlibCompileFlags()
     return flags + gzflags();
 #endif
 }
+#endif
 
 #ifdef DEBUG
 
