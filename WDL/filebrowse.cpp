@@ -109,6 +109,17 @@ bool WDL_ChooseDirectory(HWND parent, const char *text, const char *initialdir, 
 #endif
 }
 
+static const char *stristr(const char* a, const char* b)
+{
+  int i;
+  int len = strlen(b);
+  int n = strlen(a)-len;
+  for (i = 0; i <= n; ++i)
+    if (!strnicmp(a+i, b, len)) 
+      return a+i;
+  return NULL;
+}
+
 bool WDL_ChooseFileForSave(HWND parent, 
                                       const char *text, 
                                       const char *initialdir, 
@@ -145,8 +156,26 @@ bool WDL_ChooseFileForSave(HWND parent,
       char olddir[2048];
       GetCurrentDirectory(sizeof(olddir),olddir);
 
-      if (defext) fd.setDefaultExtension(defext);
       fd.setFilterList(extlist);
+      if (defext) 
+      {
+        fd.setDefaultExtension(defext);
+
+        int i = 0;
+        const char *p = extlist;
+        while(*p)
+        {
+          if(*p) p+=strlen(p)+1;
+          if(!*p) break;
+          if(stristr(p, defext)) 
+          {
+            fd.setFileTypeIndex(i+1);
+            break;
+          }
+          i++;
+          p+=strlen(p)+1;
+        }
+      }
       fd.setFolder(initialdir?initialdir:olddir, 0);
       if(initialfile) 
       {
@@ -246,9 +275,27 @@ char *WDL_ChooseFileForOpen(HWND parent,
     if(fd.inited())
     {
       //vista+ file open dialog
-      if (defext) fd.setDefaultExtension(defext);
       fd.addOptions(FOS_FILEMUSTEXIST);
       fd.setFilterList(extlist);
+      if (defext) 
+      {
+        fd.setDefaultExtension(defext);
+        
+        int i = 0;
+        const char *p = extlist;
+        while(*p)
+        {
+          if(*p) p+=strlen(p)+1;
+          if(!*p) break;
+          if(stristr(p, defext)) 
+          {
+            fd.setFileTypeIndex(i+1);
+            break;
+          }
+          i++;
+          p+=strlen(p)+1;
+        }
+      }
       fd.setFolder(initialdir?initialdir:olddir, 0);
       fd.setTemplate(hInstance, dlgid, (LPOFNHOOKPROC)dlgProc);
       if(initialfile) 

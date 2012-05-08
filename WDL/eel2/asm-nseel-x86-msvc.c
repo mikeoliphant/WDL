@@ -6,47 +6,34 @@
   #define EEL_ASM_TYPE dword ptr
 #endif
 
-#if defined(__APPLE__)
-#define SAVE_STACK "pushl %ebp\nmovl %esp, %ebp\nandl $-16, %esp\n"
-#define RESTORE_STACK "leave\n"
-#else
-#define SAVE_STACK
-#define RESTORE_STACK
-#endif
-
 /* note: only EEL_F_SIZE=8 is now supported (no float EEL_F's) */
 
 __declspec(naked) void nseel_asm_1pdd(void)
 {
   __asm {
-    SAVE_STACK
+
+    mov edi, 0xfefefefe;
 #ifdef TARGET_X64
-     movq xmm0, [eax];
-     sub rsp, 128;
-     mov edi, 0xffffffff;
-#ifdef AMD64ABI
-     mov r15, rsi;
-     call edi;
-     mov rsi, r15;
-     movq [r15], xmm0;
+    sub rsp, 128;
+    fstp qword ptr [rsp];
+    movq xmm0, [rsp];
+    #ifdef AMD64ABI
+       mov r15, rsi;
+       call edi;
+       mov rsi, r15;
+    #else
+       call edi;
+    #endif
+    movq [rsp], xmm0;
+    fld qword ptr [rsp];
+    add rsp, 128;
 #else
-     call edi;
-     movq [esi], xmm0;
-#endif
-     add rsp, 128;
-#else
-     sub esp, 8; /* keep stack aligned */
-     push dword ptr [eax+4]; /* push parameter */
-     push dword ptr [eax];    /* push the rest of the parameter */
-     mov edi, 0xffffffff;
-     call edi;
-     fstp qword ptr [esi]; /* store result */
-     add esp, 16;
+    sub esp, 16;
+    fstp qword ptr [esp];
+    call edi;
+    add esp, 16;
 #endif
 
-     mov eax, esi; /* set return value */
-     add esi, 8; /* advance worktab ptr */
-     RESTORE_STACK
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -66,36 +53,32 @@ __declspec(naked) void nseel_asm_1pdd_end(void){}
 __declspec(naked) void nseel_asm_2pdd(void)
 {
   __asm {
-    SAVE_STACK
+
+    mov edi, 0xfefefefe;
 #ifdef TARGET_X64
-    movq xmm1, [eax];
-    movq xmm0, [edi];
     sub rsp, 128;
-    mov edi, 0xffffffff;
-#ifdef AMD64ABI
-    mov r15, rsi;
-    call edi;
-    mov rsi, r15;
-    movq [r15], xmm0;
-#else
-    call edi;
-    movq [esi], xmm0;
-#endif
+    fstp qword ptr [rsp+8];
+    fstp qword ptr [rsp];
+    movq xmm1, [rsp+8];
+    movq xmm0, [rsp];
+    #ifdef AMD64ABI
+      mov r15, rsi;
+      call edi;
+      mov rsi, r15;
+    #else
+      call edi;
+    #endif
+    movq [rsp], xmm0;
+    fld qword ptr [rsp];
     add rsp, 128;
 #else
-    push dword ptr [eax+4]; /* push parameter */
-    push dword ptr [eax];    /* push the rest of the parameter */
-    push dword ptr [edi+4]; /* push parameter */
-    push dword ptr [edi];    /* push the rest of the parameter */
-    mov edi, 0xffffffff;
+    sub esp, 16;
+    fstp qword ptr [esp+8];
+    fstp qword ptr [esp];
     call edi;
-    fstp qword ptr [esi]; /* store result */
     add esp, 16;
 #endif
 
-    mov eax, esi; /* set return value */
-    add esi, 8; /* advance worktab ptr */
-    RESTORE_STACK
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -115,37 +98,37 @@ __declspec(naked) void nseel_asm_2pdd_end(void){}
 __declspec(naked) void nseel_asm_2pdds(void)
 {
   __asm {
-    SAVE_STACK
+
+    mov eax, 0xfefefefe;
 #ifdef TARGET_X64
-    movq xmm1, [eax];
-    movq xmm0, [edi];
     sub rsp, 128;
-    mov eax, 0xffffffff;
-#ifdef AMD64ABI
-    mov r15, rsi;
-    mov r14, rdi;
-    call eax;
-    mov rsi, r15;
-    movq [r14], xmm0;
-    mov rax, r14; /* set return value */
+    fstp qword ptr [rsp];
+    movq xmm0, [rdi];
+    movq xmm1, [rsp];
+    #ifdef AMD64ABI
+      mov r15, rsi;
+      mov r14, rdi;
+      call eax;
+      mov rsi, r15;
+      movq [r14], xmm0;
+      mov rax, r14; /* set return value */
+    #else
+      call eax;
+      movq [edi], xmm0;
+      mov eax, edi; /* set return value */
+    #endif
+    add rsp, 128;
 #else
-    call eax;
-    movq [edi], xmm0;
-    mov eax, edi; /* set return value */
-#endif
-    sub rsp, 128;
-#else
-    push dword ptr [eax+4]; /* push parameter */
-    push dword ptr [eax];    /* push the rest of the parameter */
+    sub esp, 8;
+    fstp qword ptr [esp];
     push dword ptr [edi+4]; /* push parameter */
     push dword ptr [edi];    /* push the rest of the parameter */
-    mov eax, 0xffffffff;
     call eax;
-    fstp qword ptr [edi]; /* store result */
     add esp, 16;
+    fstp qword ptr [edi]; /* store result */
     mov eax, edi; /* set return value */
 #endif
-    RESTORE_STACK
+
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -161,107 +144,6 @@ _emit 0x90;
   }
 }
 __declspec(naked) void nseel_asm_2pdds_end(void){}
-
-__declspec(naked) void nseel_asm_2pp(void)
-{
-__asm {
-    SAVE_STACK
-#ifdef TARGET_X64
-
-#ifdef AMD64ABI
-    mov r15, rsi;
-    /* rdi is first parameter */
-    mov rsi, rax;
-    sub rsp, 128;
-    mov eax, 0xffffffff;
-    call eax;
-    mov rsi, r15;
-    movq [r15], xmm0;
-#else
-    mov ecx, edi;
-    mov edx, eax;
-    sub rsp, 128;
-    mov edi, 0xffffffff;
-    call edi;
-    movq [esi], xmm0;
-#endif
-    add rsp, 128;
-#else
-    sub esp, 8; /* keep stack aligned */
-    push eax; /* push parameter */
-    push edi;    /* push second parameter */
-    mov edi, 0xffffffff;
-    call edi;
-    fstp EEL_ASM_TYPE [esi]; /* store result */
-    add esp, 16;
-#endif
-    mov eax, esi; /* set return value */
-    add esi, EEL_F_SIZE; /* advance worktab ptr */
-    RESTORE_STACK
-_emit 0x89;
-_emit 0x90;
-_emit 0x90;
-_emit 0x90;
-_emit 0x90;
-_emit 0x90;
-_emit 0x90;
-_emit 0x90;
-_emit 0x90;
-_emit 0x90;
-_emit 0x90;
-_emit 0x90;
-  }
-}
-__declspec(naked) void nseel_asm_2pp_end(void) {}
-
-
-__declspec(naked) void nseel_asm_1pp(void)
-{
-__asm {
-    SAVE_STACK
-#ifdef TARGET_X64
-#ifdef AMD64ABI
-    mov r15, rsi;
-    mov edi, eax;
-    sub rsp, 128;
-    mov rax, 0xffffffff;
-    call rax;
-    mov rsi, r15;
-    movq [r15], xmm0;
-#else
-    mov ecx, eax;
-    sub rsp, 128;
-    mov edi, 0xffffffff;
-    call edi;
-    movq [esi], xmm0;
-#endif
-    add rsp, 128;
-#else
-    sub esp, 12; /* keep stack aligned */
-    push eax; /* push parameter */
-    mov edi, 0xffffffff;
-    call edi;
-    fstp EEL_ASM_TYPE [esi]; /* store result */
-    add esp, 16;
-#endif
-    mov eax, esi; /* set return value */
-    add esi, EEL_F_SIZE; /* advance worktab ptr */
-    RESTORE_STACK
-_emit 0x89;
-_emit 0x90;
-_emit 0x90;
-_emit 0x90;
-_emit 0x90;
-_emit 0x90;
-_emit 0x90;
-_emit 0x90;
-_emit 0x90;
-_emit 0x90;
-_emit 0x90;
-_emit 0x90;
-  }
-}
-__declspec(naked) void nseel_asm_1pp_end(void){}
 
 
 
@@ -294,28 +176,27 @@ __declspec(naked) void nseel_asm_exec2_end(void) { }
 __declspec(naked) void nseel_asm_invsqrt(void)
 {
   __asm {
-    fld EEL_ASM_TYPE [eax];
     mov edx, 0x5f3759df;
     fst dword ptr [esi];
 #ifdef TARGET_X64
-    mov rax, 0xffffffff;
+    mov rax, 0xfefefefe;
     sub ecx, ecx;
     fmul EEL_ASM_TYPE [rax];
 #else
 #if EEL_F_SIZE == 8
-_emit 0xDC; // fmul qword ptr [0xffffffff]
+_emit 0xDC; // fmul qword ptr [0xfefefefe]
 _emit 0x0D;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
+_emit 0xFE;
+_emit 0xFE;
+_emit 0xFE;
+_emit 0xFE;
 #else
-_emit 0xD8; // fmul dword ptr [0xffffffff]
+_emit 0xD8; // fmul dword ptr [0xfefefefe]
 _emit 0x0D;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
+_emit 0xFE;
+_emit 0xFE;
+_emit 0xFE;
+_emit 0xFE;
 #endif
 #endif
     mov ecx, dword ptr [esi];
@@ -325,29 +206,26 @@ _emit 0xFF;
     fmul dword ptr [esi];
     fmul dword ptr [esi];
 #ifdef TARGET_X64
-    mov rax, 0xffffffff;
+    mov rax, 0xfefefefe;
     fadd EEL_ASM_TYPE [rax];
 #else
 #if EEL_F_SIZE == 8
-_emit 0xDC; // fadd qword ptr [0xffffffff]
+_emit 0xDC; // fadd qword ptr [0xfefefefe]
 _emit 0x05;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
+_emit 0xFE;
+_emit 0xFE;
+_emit 0xFE;
+_emit 0xFE;
 #else
-_emit 0xD8; // fadd dword ptr [0xffffffff]
+_emit 0xD8; // fadd dword ptr [0xfefefefe]
 _emit 0x05;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
+_emit 0xFE;
+_emit 0xFE;
+_emit 0xFE;
+_emit 0xFE;
 #endif
 #endif
     fmul dword ptr [esi];
-    mov eax, esi;
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -369,11 +247,7 @@ __declspec(naked) void nseel_asm_invsqrt_end(void) {}
 __declspec(naked) void nseel_asm_sin(void)
 {
   __asm {
-    fld EEL_ASM_TYPE [eax];
     fsin;
-    mov eax, esi;
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -394,11 +268,7 @@ __declspec(naked) void nseel_asm_sin_end(void) {}
 __declspec(naked) void nseel_asm_cos(void)
 {
   __asm {
-    fld EEL_ASM_TYPE [eax];
     fcos;
-    mov eax, esi;
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -419,12 +289,8 @@ __declspec(naked) void nseel_asm_cos_end(void) {}
 __declspec(naked) void nseel_asm_tan(void)
 {
   __asm {
-    fld EEL_ASM_TYPE [eax];
     fptan;
-    mov eax, esi;
     fstp st(0);
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -445,11 +311,7 @@ __declspec(naked) void nseel_asm_tan_end(void) {}
 __declspec(naked) void nseel_asm_sqr(void)
 {
   __asm {
-    fld EEL_ASM_TYPE [eax];
     fmul st(0), st(0);
-    mov eax, esi;
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -470,12 +332,8 @@ __declspec(naked) void nseel_asm_sqr_end(void) {}
 __declspec(naked) void nseel_asm_sqrt(void)
 {
   __asm {
-    fld EEL_ASM_TYPE [eax];
     fabs;
     fsqrt;
-    mov eax, esi;
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -498,11 +356,8 @@ __declspec(naked) void nseel_asm_log(void)
 {
   __asm {
     fldln2;
-    fld EEL_ASM_TYPE [eax];
-    mov eax, esi;
+    fxch;
     fyl2x;
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -524,11 +379,8 @@ __declspec(naked) void nseel_asm_log10(void)
 {
   __asm {
     fldlg2;
-    fld EEL_ASM_TYPE [eax];
-    mov eax, esi;
+    fxch;
     fyl2x;
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
 
 _emit 0x89;
 _emit 0x90;
@@ -550,11 +402,7 @@ __declspec(naked) void nseel_asm_log10_end(void) {}
 __declspec(naked) void nseel_asm_abs(void)
 {
   __asm {
-    fld EEL_ASM_TYPE [eax];
     fabs;
-    mov eax, esi;
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -592,6 +440,7 @@ label_0:
 label_1:
     
     mov qword ptr [edi], rcx;
+    mov rax, rdi;
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -608,7 +457,6 @@ _emit 0x90;
 
 #else
 
-#if EEL_F_SIZE == 8
   __asm {
     mov edx, dword ptr [eax+4];
     mov ecx, dword ptr [eax];
@@ -626,6 +474,7 @@ label_3:
     
     mov dword ptr [edi], ecx;
     mov dword ptr [edi+4], edx;
+    mov eax, edi;
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -639,39 +488,134 @@ _emit 0x90;
 _emit 0x90;
 _emit 0x90;
   }
-#else
-  __asm {
-    mov ecx, dword ptr [eax];
-    mov dword ptr [edi], ecx;
-_emit 0x89;
-_emit 0x90;
-_emit 0x90;
-_emit 0x90;
-_emit 0x90;
-_emit 0x90;
-_emit 0x90;
-_emit 0x90;
-_emit 0x90;
-_emit 0x90;
-_emit 0x90;
-_emit 0x90;
-  }
-#endif
 
 #endif
-
 }
 __declspec(naked) void nseel_asm_assign_end(void) {}
+
+//---------------------------------------------------------------------------------------------------------------
+__declspec(naked) void nseel_asm_assign_fromfp(void)
+{
+#ifdef TARGET_X64
+
+  __asm {
+    fstp qword ptr [rdi];
+    mov rdx, qword ptr [rdi];
+    mov r15, 0x7FF0000000000000;
+    and rdx, r15;
+    jz label_4;
+    cmp rdx, r15;
+    jne label_5;
+label_4:
+    
+    sub rcx, rcx;
+    mov qword ptr [rdi], rcx;
+label_5:
+    
+    mov rax, rdi;
+_emit 0x89;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+    }
+
+#else
+
+  __asm {
+    fstp qword ptr [edi];
+    mov edx, dword ptr [edi+4];
+    and edx, 0x7ff00000;
+    jz label_6;
+    cmp edx, 0x7ff00000;
+    jne label_7;
+label_6:
+    
+      fldz;
+      fstp qword ptr [edi];
+label_7:
+    
+    mov eax, edi;
+_emit 0x89;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+  }
+
+#endif
+}
+__declspec(naked) void nseel_asm_assign_fromfp_end(void) {}
+
+
+//---------------------------------------------------------------------------------------------------------------
+__declspec(naked) void nseel_asm_assign_fast(void)
+{
+#ifdef TARGET_X64
+
+  __asm {
+    mov rdx, qword ptr [rax];
+    mov qword ptr [edi], rdx;
+    mov rax, rdi;
+_emit 0x89;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+    }
+
+#else
+
+  __asm {
+    mov edx, dword ptr [eax+4];
+    mov ecx, dword ptr [eax];
+    mov dword ptr [edi], ecx;
+    mov dword ptr [edi+4], edx;
+    mov eax, edi;
+_emit 0x89;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+  }
+
+#endif
+}
+__declspec(naked) void nseel_asm_assign_fast_end(void) {}
 
 //---------------------------------------------------------------------------------------------------------------
 __declspec(naked) void nseel_asm_add(void)
 {
   __asm {
-    fld EEL_ASM_TYPE [eax];
-    fadd EEL_ASM_TYPE [edi];
-    mov eax, esi;
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
+    fadd;
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -691,7 +635,6 @@ __declspec(naked) void nseel_asm_add_end(void) {}
 __declspec(naked) void nseel_asm_add_op(void)
 {
   __asm {
-    fld EEL_ASM_TYPE [eax];
     fadd EEL_ASM_TYPE [edi];
     mov eax, edi;
     fstp EEL_ASM_TYPE [edi];
@@ -716,11 +659,11 @@ __declspec(naked) void nseel_asm_add_op_end(void) {}
 __declspec(naked) void nseel_asm_sub(void)
 {
   __asm {
-    fld EEL_ASM_TYPE [edi];
-    fsub EEL_ASM_TYPE [eax];
-    mov eax, esi;
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
+#ifdef __GNUC__
+    fsubr; // gnuc has fsub/fsubr backwards, ack
+#else
+    fsub;
+#endif
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -740,8 +683,7 @@ __declspec(naked) void nseel_asm_sub_end(void) {}
 __declspec(naked) void nseel_asm_sub_op(void)
 {
   __asm {
-    fld EEL_ASM_TYPE [edi];
-    fsub EEL_ASM_TYPE [eax];
+    fsubr EEL_ASM_TYPE [edi];
     mov eax, edi;
     fstp EEL_ASM_TYPE [edi];
 _emit 0x89;
@@ -764,11 +706,7 @@ __declspec(naked) void nseel_asm_sub_op_end(void) {}
 __declspec(naked) void nseel_asm_mul(void)
 {
   __asm {
-    fld EEL_ASM_TYPE [edi];
-    fmul EEL_ASM_TYPE [eax];
-    mov eax, esi;
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
+    fmul;
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -788,7 +726,6 @@ __declspec(naked) void nseel_asm_mul_end(void) {}
 __declspec(naked) void nseel_asm_mul_op(void)
 {
   __asm {
-    fld EEL_ASM_TYPE [eax];
     fmul EEL_ASM_TYPE [edi];
     mov eax, edi;
     fstp EEL_ASM_TYPE [edi];
@@ -812,11 +749,11 @@ __declspec(naked) void nseel_asm_mul_op_end(void) {}
 __declspec(naked) void nseel_asm_div(void)
 {
   __asm {
-    fld EEL_ASM_TYPE [edi];
-    fdiv EEL_ASM_TYPE [eax];
-    mov eax, esi;
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
+#ifdef __GNUC__
+    fdivr; // gcc inline asm seems to have fdiv/fdivr backwards
+#else
+    fdiv;
+#endif
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -837,7 +774,10 @@ __declspec(naked) void nseel_asm_div_op(void)
 {
   __asm {
     fld EEL_ASM_TYPE [edi];
-    fdiv EEL_ASM_TYPE [eax];
+#ifndef __GNUC__
+    fxch; // gcc inline asm seems to have fdiv/fdivr backwards
+#endif
+    fdiv;
     mov eax, edi;
     fstp EEL_ASM_TYPE [edi];
 _emit 0x89;
@@ -860,8 +800,6 @@ __declspec(naked) void nseel_asm_div_op_end(void) {}
 __declspec(naked) void nseel_asm_mod(void)
 {
   __asm {
-    fld EEL_ASM_TYPE [edi];
-    fld EEL_ASM_TYPE [eax];
     fabs;
     fistp dword ptr [esi];
     fabs;
@@ -871,16 +809,13 @@ __declspec(naked) void nseel_asm_mod(void)
     sub eax, eax;
 #endif
     cmp dword ptr [esi], 0;
-    je label_4; // skip devide, set return to 0
+    je label_8; // skip devide, set return to 0
     mov eax, dword ptr [esi+4];
     div dword ptr [esi];
-label_4:
+label_8:
     
     mov dword ptr [esi], edx;
     fild dword ptr [esi];
-    mov eax, esi;
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -900,20 +835,13 @@ __declspec(naked) void nseel_asm_mod_end(void) {}
 __declspec(naked) void nseel_asm_shl(void)
 {
   __asm {
-    fld EEL_ASM_TYPE [edi];
-    fld EEL_ASM_TYPE [eax];
     fistp dword ptr [esi];
     fistp dword ptr [esi+4];
-    push ecx;
     mov ecx, dword ptr [esi];
     mov eax, dword ptr [esi+4];
     shl eax, cl;
     mov dword ptr [esi], eax;
-    pop ecx;
     fild dword ptr [esi];
-    mov eax, esi;
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -933,20 +861,13 @@ __declspec(naked) void nseel_asm_shl_end(void) {}
 __declspec(naked) void nseel_asm_shr(void)
 {
   __asm {
-    fld EEL_ASM_TYPE [edi];
-    fld EEL_ASM_TYPE [eax];
     fistp dword ptr [esi];
     fistp dword ptr [esi+4];
-    push ecx;
     mov ecx, dword ptr [esi];
     mov eax, dword ptr [esi+4];
     sar eax, cl;
     mov dword ptr [esi], eax;
-    pop ecx;
     fild dword ptr [esi];
-    mov eax, esi;
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -968,7 +889,7 @@ __declspec(naked) void nseel_asm_mod_op(void)
 {
   __asm {
     fld EEL_ASM_TYPE [edi];
-    fld EEL_ASM_TYPE [eax];
+    fxch;
     fabs;
     fistp dword ptr [edi];
     fabs;
@@ -978,10 +899,10 @@ __declspec(naked) void nseel_asm_mod_op(void)
 #endif
     xor edx, edx;
     cmp dword ptr [edi], 0;
-    je label_5; // skip devide, set return to 0
+    je label_9; // skip devide, set return to 0
     mov eax, dword ptr [esi];
     div dword ptr [edi];
-label_5:
+label_9:
     
     mov dword ptr [edi], edx;
     fild dword ptr [edi];
@@ -1007,9 +928,6 @@ __declspec(naked) void nseel_asm_mod_op_end(void) {}
 __declspec(naked) void nseel_asm_or(void)
 {
   __asm {
-    fld EEL_ASM_TYPE [edi];
-    fld EEL_ASM_TYPE [eax];
-    mov eax, esi;
     fistp qword ptr [esi];
     fistp qword ptr [esi+8];
 #ifdef TARGET_X64
@@ -1022,8 +940,6 @@ __declspec(naked) void nseel_asm_or(void)
     or dword ptr [esi+4], ecx;
 #endif
     fild qword ptr [esi];
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -1040,11 +956,31 @@ _emit 0x90;
 }
 __declspec(naked) void nseel_asm_or_end(void) {}
 
+__declspec(naked) void nseel_asm_or0(void)
+{
+  __asm {
+    frndint;
+_emit 0x89;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+  }
+}
+__declspec(naked) void nseel_asm_or0_end(void) {}
+
 __declspec(naked) void nseel_asm_or_op(void)
 {
   __asm {
     fld EEL_ASM_TYPE [edi];
-    fld EEL_ASM_TYPE [eax];
+    fxch;
     fistp qword ptr [edi];
     fistp qword ptr [esi];
 #ifdef TARGET_X64
@@ -1075,13 +1011,78 @@ _emit 0x90;
 }
 __declspec(naked) void nseel_asm_or_op_end(void) {}
 
+
+__declspec(naked) void nseel_asm_xor(void)
+{
+  __asm {
+    fistp qword ptr [esi];
+    fistp qword ptr [esi+8];
+#ifdef TARGET_X64
+    mov rdi, qword ptr [rsi+8];
+    xor qword ptr [rsi], rdi;
+#else
+    mov edi, dword ptr [esi+8];
+    mov ecx, dword ptr [esi+12];
+    xor dword ptr [esi], edi;
+    xor dword ptr [esi+4], ecx;
+#endif
+    fild qword ptr [esi];
+_emit 0x89;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+  }
+}
+__declspec(naked) void nseel_asm_xor_end(void) {}
+
+__declspec(naked) void nseel_asm_xor_op(void)
+{
+  __asm {
+    fld EEL_ASM_TYPE [edi];
+    fxch;
+    fistp qword ptr [edi];
+    fistp qword ptr [esi];
+#ifdef TARGET_X64
+    mov rax, qword ptr [rsi];
+    xor qword ptr [rdi], rax;
+#else
+    mov eax, dword ptr [esi];
+    mov ecx, dword ptr [esi+4];
+    xor dword ptr [edi], eax;
+    xor dword ptr [edi+4], ecx;
+#endif
+    fild qword ptr [edi];
+    mov eax, edi;
+    fstp EEL_ASM_TYPE [edi];
+_emit 0x89;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+  }
+}
+__declspec(naked) void nseel_asm_xor_op_end(void) {}
+
+
 //---------------------------------------------------------------------------------------------------------------
 __declspec(naked) void nseel_asm_and(void)
 {
   __asm {
-    fld EEL_ASM_TYPE [edi];
-    fld EEL_ASM_TYPE [eax];
-    mov eax, esi;
     fistp qword ptr [esi];
     fistp qword ptr [esi+8];
 #ifdef TARGET_X64
@@ -1094,8 +1095,6 @@ __declspec(naked) void nseel_asm_and(void)
     and dword ptr [esi+4], ecx;
 #endif
     fild qword ptr [esi];
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -1116,7 +1115,7 @@ __declspec(naked) void nseel_asm_and_op(void)
 {
   __asm {
     fld EEL_ASM_TYPE [edi];
-    fld EEL_ASM_TYPE [eax];
+    fxch;
     fistp qword ptr [edi];
     fistp qword ptr [esi];
 #ifdef TARGET_X64
@@ -1173,21 +1172,7 @@ __declspec(naked) void nseel_asm_uplus_end(void) {}
 __declspec(naked) void nseel_asm_uminus(void)
 {
   __asm {
-#if EEL_F_SIZE == 8
-    mov ecx, dword ptr [eax];
-    mov edi, dword ptr [eax+4];
-    mov dword ptr [esi], ecx;
-    xor edi, 0x80000000;
-    mov eax, esi;
-    mov dword ptr [esi+4], edi;
-    add esi, 8;
-#else
-    mov ecx, dword ptr [eax];
-    xor ecx, 0x80000000;
-    mov eax, esi;
-    mov dword ptr [esi], ecx;
-    add esi, 4;
-#endif
+    fchs;
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -1214,60 +1199,37 @@ __declspec(naked) void nseel_asm_sign(void)
 #ifdef TARGET_X64
 
 
-    mov rdi, 0xFFFFFFFF;
-    mov rcx, qword ptr [rax];
-    mov rdx, 0x7FFFFFFFFFFFFFFF;
-    test rcx, rdx;
-    jz label_6;
-    shr rcx, 60;
-    and rcx, 8;
-    add rcx, rdi;
-    mov rax, rsi;
-    add rsi, 8;
-    mov rdi, qword ptr [rcx];
-    mov qword ptr [rax], rdi;
-label_6:
-	
-
+    fst EEL_ASM_TYPE [rsp+-8];
+    mov rdx, EEL_ASM_TYPE [rsp+-8];
+    mov rcx, 0x7FFFFFFFFFFFFFFF;
+    test rdx, rcx;
+    jz label_10; // zero zero, return the value passed directly
+      // calculate sign
+      inc rcx; // rcx becomes 0x80000...
+      fstp st(0);
+      fld1;
+      test rdx, rcx;
+      jz label_10;
+      fchs;
+label_10:
+  	
 
 #else
 
-    mov edi, 0xFFFFFFFF;
-#if EEL_F_SIZE == 8
-    mov ecx, dword ptr [eax+4];
-    mov edx, dword ptr [eax];
-    test edx, 0xFFFFFFFF;
-    jnz label_7;
-#else
-    mov ecx, dword ptr [eax];
-#endif
-    // high dword (minus sign bit) is zero
-    test ecx, 0x7FFFFFFF;
-    jz label_8; // zero zero, return the value passed directly
-label_7:
-    
-#if EEL_F_SIZE == 8
-	shr ecx, 28;
-#else
-	shr ecx, 29;
-#endif
-
-    and ecx, EEL_F_SIZE;
-    add ecx, edi;
-
-    mov eax, esi;
-    add esi, EEL_F_SIZE;
-
-    mov edi, dword ptr [ecx];
-#if EEL_F_SIZE == 8
-    mov edx, dword ptr [ecx+4];
-#endif
-    mov dword ptr [eax], edi;
-#if EEL_F_SIZE == 8
-    mov dword ptr [eax+4], edx;
-#endif
-label_8:
-	
+    fst dword ptr [esp+-4];
+    mov ecx, dword ptr [esp+-4];
+    mov edx, 0x7FFFFFFF;
+    test ecx, edx;
+    jz label_11; // zero zero, return the value passed directly
+      // calculate sign
+      inc edx; // edx becomes 0x8000...
+      fstp st(0);
+      fld1;
+      test ecx, edx;
+      jz label_11;
+      fchs;
+label_11:
+  	
 
 #endif
 _emit 0x89;
@@ -1292,41 +1254,9 @@ __declspec(naked) void nseel_asm_sign_end(void) {}
 __declspec(naked) void nseel_asm_bnot(void)
 {
   __asm {
-    fld EEL_ASM_TYPE [eax];
-    fabs;
-#ifdef TARGET_X64
-    mov rax, 0xFFFFFFFF;
-    fcomp EEL_ASM_TYPE [rax]; //[g_closefact]
-#else
-#if EEL_F_SIZE == 8
-_emit 0xDC; // fcomp qword ptr [0xffffffff]
-_emit 0x1D;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-#else
-_emit 0xD8; // fcomp dword ptr [0xffffffff]
-_emit 0x1D;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-#endif
-#endif
-    fstsw ax;
-    test eax, 256;
-    mov eax, esi;
-    jz label_9;
-    fld1;
-    jmp label_10;
-label_9:
-    
-    fldz;
-label_10:
-    
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
+    test eax, eax;
+    setz al;
+    and eax, 0xff;
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -1344,49 +1274,37 @@ _emit 0x90;
 __declspec(naked) void nseel_asm_bnot_end(void) {}
 
 //---------------------------------------------------------------------------------------------------------------
-__declspec(naked) void nseel_asm_if(void)
+__declspec(naked) void nseel_asm_if(void) // not currently used on x86/x86-64
 {
   __asm {
-    fld EEL_ASM_TYPE [eax];
-    fabs;
 #ifdef TARGET_X64
-    mov rax, 0xFFFFFFFF;
-    fcomp EEL_ASM_TYPE [rax]; //[g_closefact]
-    mov rax, 0xFFFFFFFF;
-    mov qword ptr [esi], rax; // conversion script will extend these out to full len
-    mov rax, 0xFFFFFFFF;
-    mov qword ptr [esi+8], rax;
-    fstsw ax;
-    shr rax, 5;
-    and rax, 8;
-    mov rax, qword ptr [rax+rsi];
     sub rsp, 8;
-#else
-#if EEL_F_SIZE == 8
-_emit 0xDC; // fcomp qword ptr [0xffffffff]
-_emit 0x1D;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-#else
-_emit 0xD8; // fcomp dword ptr [0xffffffff]
-_emit 0x1D;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-#endif
-    mov dword ptr [esi], 0xFFFFFFFF;
-    mov dword ptr [esi+4], 0xFFFFFFFF;
-    fstsw ax;
-    shr eax, 6;
-    and eax, 4;
-    mov eax, dword ptr [eax+esi];
-#endif
+    test eax, eax;
+    jz label_12;
+    mov rax, 0xfefefefe;
     call eax;
-#ifdef TARGET_X64
+    jmp label_13;
+label_12:
+    
+    mov rax, 0xfefefefe;
+    call eax;
+label_13:
+    
     add rsp, 8;
+#else
+    sub esp, 12;
+    test eax, eax;
+    jz label_14;
+    mov eax, 0xfefefefe;
+    call eax;
+    jmp label_15;
+label_14:
+    
+    mov eax, 0xfefefefe;
+    call eax;
+label_15:
+    
+    add esp, 12;
 #endif
 
 _emit 0x89;
@@ -1409,30 +1327,41 @@ __declspec(naked) void nseel_asm_if_end(void) {}
 __declspec(naked) void nseel_asm_repeat(void)
 {
   __asm {
-    fld EEL_ASM_TYPE [eax];
+#ifdef TARGET_X64
+    fistp qword ptr [esi];
+    mov rcx, qword ptr [rsi];
+#else
     fistp dword ptr [esi];
-#ifdef TARGET_X64 // safe not sure if movl ecx will zero the high word
-    xor ecx, ecx;
-#endif
     mov ecx, dword ptr [esi];
+#endif
     cmp ecx, 1;
-    jl label_11;
+    jl label_16;
     cmp ecx, NSEEL_LOOPFUNC_SUPPORT_MAXLEN;
-    jl label_12;
+    jl label_17;
     mov ecx, NSEEL_LOOPFUNC_SUPPORT_MAXLEN;
-label_12:
+label_17:
 
-      mov edx, 0xFFFFFFFF;
-      sub esp, 8; /* keep stack aligned -- note this is required on x64 too!*/
+      mov edx, 0xfefefefe;
+#ifdef TARGET_X64
+      sub esp, 8; /* keep stack aligned to 16 byte */
+#else
+      sub esp, 4; /* keep stack aligned to 16 byte */
+#endif
       push esi; // revert back to last temp workspace
       push ecx;
+
       call edx;
+
       pop ecx;
       pop esi;
-      add esp, 8; /* keep stack aligned -- also required on x64*/
+#ifdef TARGET_X64
+      add esp, 8; /* keep stack aligned to 16 byte */
+#else
+      add esp, 4; /* keep stack aligned to 16 byte */
+#endif
     dec ecx;
-    jnz label_12;
-label_11:
+    jnz label_17;
+label_16:
 
 _emit 0x89;
 _emit 0x90;
@@ -1450,50 +1379,65 @@ _emit 0x90;
 }
 __declspec(naked) void nseel_asm_repeat_end(void) {}
 
+//---------------------------------------------------------------------------------------------------------------
+__declspec(naked) void nseel_asm_fcall(void)
+{
+  __asm {
+     mov edx, 0xfefefefe;
+#ifdef TARGET_X64
+     sub esp, 8;
+     call edx;
+     add esp, 8;
+#else
+     sub esp, 12; /* keep stack 16 byte aligned, 4 bytes for return address */
+     call edx;
+     add esp, 12;
+#endif
+_emit 0x89;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+  }
+}
+__declspec(naked) void nseel_asm_fcall_end(void) {}
+
 __declspec(naked) void nseel_asm_repeatwhile(void)
 {
   __asm {
     mov ecx, NSEEL_LOOPFUNC_SUPPORT_MAXLEN;
-label_13:
+label_18:
 
-      mov edx, 0xFFFFFFFF;
+      mov edx, 0xfefefefe;
+
+#ifdef TARGET_X64
       sub esp, 8; /* keep stack aligned -- required on x86 and x64*/
+#else
+      sub esp, 4; /* keep stack aligned -- required on x86 and x64*/
+#endif
       push esi; // revert back to last temp workspace
       push ecx;
       call edx;
       pop ecx;
       pop esi;
-      add esp, 8; /* keep stack aligned -- required on x86 and x64 */
-      fld EEL_ASM_TYPE [eax];
-	  fabs;
 #ifdef TARGET_X64
-    mov rax, 0xFFFFFFFF;
-    fcomp EEL_ASM_TYPE [rax]; //[g_closefact]
+      add esp, 8; /* keep stack aligned -- required on x86 and x64 */
 #else
-#if EEL_F_SIZE == 8
-_emit 0xDC; // fcomp qword ptr [0xffffffff]
-_emit 0x1D;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-#else
-_emit 0xD8; // fcomp dword ptr [0xffffffff]
-_emit 0x1D;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
+      add esp, 4; /* keep stack aligned -- required on x86 and x64 */
 #endif
-#endif
-      fstsw ax;
-	  test eax, 256;
-	  jnz label_14;
+	  test eax, eax;
+	  jz label_19;
     dec ecx;
-    jnz label_13;
-label_14:
+    jnz label_18;
+label_19:
 	
-	mov eax, esi;
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -1514,77 +1458,23 @@ __declspec(naked) void nseel_asm_repeatwhile_end(void) {}
 __declspec(naked) void nseel_asm_band(void)
 {
   __asm {
-    fld EEL_ASM_TYPE [eax];
-    fabs;
-#ifdef TARGET_X64
-    mov rax, 0xFFFFFFFF;
-    fcomp EEL_ASM_TYPE [rax]; //[g_closefact]
-#else
-#if EEL_F_SIZE == 8
-_emit 0xDC; // fcomp qword ptr [0xffffffff]
-_emit 0x1D;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-#else
-_emit 0xD8; // fcomp dword ptr [0xffffffff]
-_emit 0x1D;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-#endif
-#endif
-    fstsw ax;
-    test eax, 256;
-    jnz label_15; // if Z, then we are nonzero
+    test eax, eax;
+    jz label_20;
 
-        mov ecx, 0xFFFFFFFF;
+     mov ecx, 0xfefefefe;
 #ifdef TARGET_X64
-    sub rsp, 8;
+        sub rsp, 8;
+#else
+        sub esp, 12;
 #endif
         call ecx;
 #ifdef TARGET_X64
-    add rsp, 8;
-#endif
-    	fld EEL_ASM_TYPE [eax];
-    	fabs;
-#ifdef TARGET_X64
-    mov rax, 0xFFFFFFFF;
-    fcomp EEL_ASM_TYPE [rax]; //[g_closefact]
+        add rsp, 8;
 #else
-#if EEL_F_SIZE == 8
-_emit 0xDC; // fcomp qword ptr [0xffffffff]
-_emit 0x1D;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-#else
-_emit 0xD8; // fcomp dword ptr [0xffffffff]
-_emit 0x1D;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
+        add esp, 12;
 #endif
-#endif
-    	fstsw ax;
-        test eax, 256;
-	jnz label_15;
-	fld1;
-	jmp label_16;
-
-label_15:
-
-    fldz;
-label_16:
-
-
-    mov eax, esi;
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
+label_20:
+    
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -1604,77 +1494,23 @@ __declspec(naked) void nseel_asm_band_end(void) {}
 __declspec(naked) void nseel_asm_bor(void)
 {
   __asm {
-    fld EEL_ASM_TYPE [eax];
-    fabs;
-#ifdef TARGET_X64
-    mov rax, 0xFFFFFFFF;
-    fcomp EEL_ASM_TYPE [rax]; //[g_closefact]
-#else
-#if EEL_F_SIZE == 8
-_emit 0xDC; // fcomp qword ptr [0xffffffff]
-_emit 0x1D;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-#else
-_emit 0xD8; // fcomp dword ptr [0xffffffff]
-_emit 0x1D;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-#endif
-#endif
-    fstsw ax;
-    test eax, 256;
-    jz label_17; // if Z, then we are nonzero
+    test eax, eax;
+    jnz label_21;
 
-        mov ecx, 0xFFFFFFFF;
+    mov ecx, 0xfefefefe;
 #ifdef TARGET_X64
     sub rsp, 8;
+#else
+    sub esp, 12;
 #endif
-        call ecx;
+    call ecx;
 #ifdef TARGET_X64
     add rsp, 8;
-#endif
-    	fld EEL_ASM_TYPE [eax];
-    	fabs;
-#ifdef TARGET_X64
-    mov rax, 0xFFFFFFFF;
-    fcomp EEL_ASM_TYPE [rax]; //[g_closefact]
 #else
-#if EEL_F_SIZE == 8
-_emit 0xDC; // fcomp qword ptr [0xffffffff]
-_emit 0x1D;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-#else
-_emit 0xD8; // fcomp dword ptr [0xffffffff]
-_emit 0x1D;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
+    add esp, 12;
 #endif
-#endif
-    	fstsw ax;
-        test eax, 256;
-	jz label_17;
-	fldz;
-	jmp label_18;
-
-label_17:
-
-    fld1;
-label_18:
-
-
-    mov eax, esi;
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
+label_21:
+    
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -1695,42 +1531,30 @@ __declspec(naked) void nseel_asm_bor_end(void) {}
 __declspec(naked) void nseel_asm_equal(void)
 {
   __asm {
-    fld EEL_ASM_TYPE [eax];
-    fsub EEL_ASM_TYPE [edi];
+    fsub;
     fabs;
 #ifdef TARGET_X64
-    mov rax, 0xFFFFFFFF;
+    mov rax, 0xfefefefe;
     fcomp EEL_ASM_TYPE [rax]; //[g_closefact]
 #else
 #if EEL_F_SIZE == 8
-_emit 0xDC; // fcomp qword ptr [0xffffffff]
+_emit 0xDC; // fcomp qword ptr [0xfefefefe]
 _emit 0x1D;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
+_emit 0xFE;
+_emit 0xFE;
+_emit 0xFE;
+_emit 0xFE;
 #else
-_emit 0xD8; // fcomp dword ptr [0xffffffff]
+_emit 0xD8; // fcomp dword ptr [0xfefefefe]
 _emit 0x1D;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
+_emit 0xFE;
+_emit 0xFE;
+_emit 0xFE;
+_emit 0xFE;
 #endif
 #endif
     fstsw ax;
-    test eax, 256;
-    mov eax, esi;
-    jz label_19;
-    fld1;
-    jmp label_20;
-label_19:
-    
-    fldz;
-label_20:
-    
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
+    and eax, 256; // old behavior: if 256 set, true (NaN means true)
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -1751,42 +1575,31 @@ __declspec(naked) void nseel_asm_equal_end(void) {}
 __declspec(naked) void nseel_asm_notequal(void)
 {
   __asm {
-    fld EEL_ASM_TYPE [eax];
-    fsub EEL_ASM_TYPE [edi];
+    fsub;
     fabs;
 #ifdef TARGET_X64
-    mov rax, 0xFFFFFFFF;
+    mov rax, 0xfefefefe;
     fcomp EEL_ASM_TYPE [rax]; //[g_closefact]
 #else
 #if EEL_F_SIZE == 8
-_emit 0xDC; // fcomp qword ptr [0xffffffff]
+_emit 0xDC; // fcomp qword ptr [0xfefefefe]
 _emit 0x1D;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
+_emit 0xFE;
+_emit 0xFE;
+_emit 0xFE;
+_emit 0xFE;
 #else
-_emit 0xD8; // fcomp dword ptr [0xffffffff]
+_emit 0xD8; // fcomp dword ptr [0xfefefefe]
 _emit 0x1D;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
+_emit 0xFE;
+_emit 0xFE;
+_emit 0xFE;
+_emit 0xFE;
 #endif
 #endif
     fstsw ax;
-    test eax, 256;
-    mov eax, esi;
-    jnz label_21;
-    fld1;
-    jmp label_22;
-label_21:
-    
-    fldz;
-label_22:
-    
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
+    and eax, 256;
+    xor eax, 256; // old behavior: if 256 set, FALSE (NaN makes for false)
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -1805,24 +1618,12 @@ __declspec(naked) void nseel_asm_notequal_end(void) {}
 
 
 //---------------------------------------------------------------------------------------------------------------
-__declspec(naked) void nseel_asm_below(void)
+__declspec(naked) void nseel_asm_above(void)
 {
   __asm {
-    fld EEL_ASM_TYPE [edi];
-    fcomp EEL_ASM_TYPE [eax];
+    fcompp;
     fstsw ax;
-    test eax, 256;
-    mov eax, esi;
-    jz label_23;
-    fld1;
-    jmp label_24;
-label_23:
-    
-    fldz;
-label_24:
-    
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
+    and eax, 1280; //  (1024+256) old behavior: NaN would mean 1, preserve that
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -1837,27 +1638,16 @@ _emit 0x90;
 _emit 0x90;
   }
 }
-__declspec(naked) void nseel_asm_below_end(void) {}
+__declspec(naked) void nseel_asm_above_end(void) {}
 
 //---------------------------------------------------------------------------------------------------------------
 __declspec(naked) void nseel_asm_beloweq(void)
 {
   __asm {
-    fld EEL_ASM_TYPE [eax];
-    fcomp EEL_ASM_TYPE [edi];
+    fcompp;
     fstsw ax;
-    test eax, 256;
-    mov eax, esi;
-    jnz label_25;
-    fld1;
-    jmp label_26;
-label_25:
-    
-    fldz;
-label_26:
-    
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
+    and eax, 256; // old behavior: NaN would be 0 (ugh)
+    xor eax, 256;
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -1875,25 +1665,18 @@ _emit 0x90;
 __declspec(naked) void nseel_asm_beloweq_end(void) {}
 
 
-//---------------------------------------------------------------------------------------------------------------
-__declspec(naked) void nseel_asm_above(void)
+__declspec(naked) void nseel_asm_booltofp(void)
 {
   __asm {
-    fld EEL_ASM_TYPE [eax];
-    fcomp EEL_ASM_TYPE [edi];
-    fstsw ax;
-    test eax, 256;
-    mov eax, esi;
-    jz label_27;
+    test eax, eax;
+    jz label_22;
     fld1;
-    jmp label_28;
-label_27:
+    jmp label_23;
+label_22:
     
     fldz;
-label_28:
+label_23:
     
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -1908,26 +1691,35 @@ _emit 0x90;
 _emit 0x90;
   }
 }
-__declspec(naked) void nseel_asm_above_end(void) {}
+__declspec(naked) void nseel_asm_booltofp_end(void) {}
 
-__declspec(naked) void nseel_asm_aboveeq(void)
+__declspec(naked) void nseel_asm_fptobool(void)
 {
   __asm {
-    fld EEL_ASM_TYPE [edi];
-    fcomp EEL_ASM_TYPE [eax];
+    fabs;
+#ifdef TARGET_X64
+    mov rax, 0xfefefefe;
+    fcomp EEL_ASM_TYPE [rax]; //[g_closefact]
+#else
+#if EEL_F_SIZE == 8
+_emit 0xDC; // fcomp qword ptr [0xfefefefe]
+_emit 0x1D;
+_emit 0xFE;
+_emit 0xFE;
+_emit 0xFE;
+_emit 0xFE;
+#else
+_emit 0xD8; // fcomp dword ptr [0xfefefefe]
+_emit 0x1D;
+_emit 0xFE;
+_emit 0xFE;
+_emit 0xFE;
+_emit 0xFE;
+#endif
+#endif
     fstsw ax;
-    test eax, 256;
-    mov eax, esi;
-    jnz label_29;
-    fld1;
-    jmp label_30;
-label_29:
-    
-    fldz;
-label_30:
-    
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
+    and eax, 256;
+    xor eax, 256;
 _emit 0x89;
 _emit 0x90;
 _emit 0x90;
@@ -1942,8 +1734,7 @@ _emit 0x90;
 _emit 0x90;
   }
 }
-__declspec(naked) void nseel_asm_aboveeq_end(void) {}
-
+__declspec(naked) void nseel_asm_fptobool_end(void) {}
 
 
 __declspec(naked) void nseel_asm_min(void)
@@ -1955,9 +1746,9 @@ __declspec(naked) void nseel_asm_min(void)
     fstsw ax;
     test eax, 256;
     pop eax;
-    jz label_31;
+    jz label_24;
     mov eax, edi;
-label_31:
+label_24:
     
 _emit 0x89;
 _emit 0x90;
@@ -1985,9 +1776,9 @@ __declspec(naked) void nseel_asm_max(void)
     fstsw ax;
     test eax, 256;
     pop eax;
-    jnz label_32;
+    jnz label_25;
     mov eax, edi;
-label_32:
+label_25:
     
 _emit 0x89;
 _emit 0x90;
@@ -2007,6 +1798,61 @@ __declspec(naked) void nseel_asm_max_end(void) {}
 
 
 
+__declspec(naked) void nseel_asm_min_fp(void)
+{
+  __asm {
+    fcom;
+    fstsw ax;
+    test eax, 256;
+    jz label_26;
+    fxch;
+label_26:
+    
+    fstp st(0);
+_emit 0x89;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+    }
+
+}
+__declspec(naked) void nseel_asm_min_fp_end(void) {}
+
+__declspec(naked) void nseel_asm_max_fp(void)
+{
+  __asm {
+    fcom;
+    fstsw ax;
+    test eax, 256;
+    jnz label_27;
+    fxch;
+label_27:
+    
+    fstp st(0);
+_emit 0x89;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+    }
+}
+__declspec(naked) void nseel_asm_max_fp_end(void) {}
+
 
 
 // just generic functions left, yay
@@ -2023,11 +1869,11 @@ __declspec(naked) void _asm_generic3parm(void)
 
     mov r15, rsi;
     mov rdx, rdi; // third parameter = parm
-    mov rdi, 0xFFFFFFFF; // first parameter= context
+    mov rdi, 0xfefefefe; // first parameter= context
 
     mov rsi, ecx; // second parameter = parm
     mov rcx, rax; // fourth parameter = parm
-    mov rax, 0xffffffff; // call function
+    mov rax, 0xfefefefe; // call function
     sub rsp, 128;
     call rax;
 
@@ -2036,26 +1882,26 @@ __declspec(naked) void _asm_generic3parm(void)
 
 #else
     mov edx, ecx; // second parameter = parm
-    mov ecx, 0xFFFFFFFF; // first parameter= context
+    mov ecx, 0xfefefefe; // first parameter= context
     mov r8, rdi; // third parameter = parm
     mov r9, rax; // fourth parameter = parm
-    mov edi, 0xffffffff; // call function
+    mov edi, 0xfefefefe; // call function
     sub rsp, 128;
     call edi;
     add rsp, 128;
 #endif
 
 #else
-    SAVE_STACK
-    mov edx, 0xFFFFFFFF;
+
+    mov edx, 0xfefefefe;
     push eax; // push parameter
     push edi; // push parameter
     push ecx; // push parameter
     push edx; // push context pointer
-    mov edi, 0xffffffff;
+    mov edi, 0xfefefefe;
     call edi;
     add esp, 16;
-    RESTORE_STACK
+
 #endif
 _emit 0x89;
 _emit 0x90;
@@ -2081,44 +1927,37 @@ __declspec(naked) void _asm_generic3parm_retd(void)
 #ifdef AMD64ABI
     mov r15, rsi;
     mov rdx, rdi; // third parameter = parm
-    mov rdi, 0xFFFFFFFF; // first parameter= context
+    mov rdi, 0xfefefefe; // first parameter= context
     mov rsi, ecx; // second parameter = parm
     mov rcx, rax; // fourth parameter = parm
-    mov rax, 0xffffffff; // call function
+    mov rax, 0xfefefefe; // call function
     sub rsp, 128;
     call rax;
-    add rsp, 128;
     mov rsi, r15;
-    mov rax, r15;
-    movq [r15], xmm0;
-    add rsi, 8;
 #else
     mov edx, ecx; // second parameter = parm
-    mov ecx, 0xFFFFFFFF; // first parameter= context
+    mov ecx, 0xfefefefe; // first parameter= context
     mov r8, rdi; // third parameter = parm
     mov r9, rax; // fourth parameter = parm
-    mov edi, 0xffffffff; // call function
+    mov edi, 0xfefefefe; // call function
     sub rsp, 128;
     call edi;
-    add rsp, 128;
-    movq [rsi], xmm0;
-    mov rax, rsi;
-    add rsi, 8;
 #endif
+    movq [rsp], xmm0;
+    fld qword ptr [rsp];
+    add rsp, 128;
 #else
-    SAVE_STACK
-    mov edx, 0xFFFFFFFF;
-    push eax; // push parameter
-    push edi; // push parameter
-    push ecx; // push parameter
-    push edx; // push context pointer
-    mov edi, 0xffffffff;
+
+    sub esp, 16;
+    mov dword ptr [esp+8], edi;
+    mov edx, 0xfefefefe;
+    mov edi, 0xfefefefe;
+    mov dword ptr [esp+12], eax;
+    mov dword ptr [esp+4], ecx;
+    mov dword ptr [esp], edx;
     call edi;
-    mov eax, esi;
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
     add esp, 16;
-    RESTORE_STACK
+
 #endif
 _emit 0x89;
 _emit 0x90;
@@ -2145,33 +1984,33 @@ __declspec(naked) void _asm_generic2parm(void) // this prob neds to be fixed for
 #ifdef AMD64ABI
     mov r15, rsi;
     mov esi, edi; // second parameter = parm
-    mov edi, 0xFFFFFFFF; // first parameter= context
+    mov edi, 0xfefefefe; // first parameter= context
     mov rdx, rax; // third parameter = parm
-    mov rcx, 0xffffffff; // call function
+    mov rcx, 0xfefefefe; // call function
     sub rsp, 128;
     call rcx;
     mov rsi, r15;
     add rsp, 128;
 #else
-    mov ecx, 0xFFFFFFFF; // first parameter= context
+    mov ecx, 0xfefefefe; // first parameter= context
     mov edx, edi; // second parameter = parm
     mov r8, rax; // third parameter = parm
-    mov edi, 0xffffffff; // call function
+    mov edi, 0xfefefefe; // call function
     sub rsp, 128;
     call edi;
     add rsp, 128;
 #endif
 #else
-    SAVE_STACK
-    mov edx, 0xFFFFFFFF;
+
+    mov edx, 0xfefefefe;
     sub esp, 4; // keep stack aligned
     push eax; // push parameter
     push edi; // push parameter
     push edx; // push context pointer
-    mov edi, 0xffffffff;
+    mov edi, 0xfefefefe;
     call edi;
     add esp, 16;
-    RESTORE_STACK
+
 #endif
 _emit 0x89;
 _emit 0x90;
@@ -2197,42 +2036,34 @@ __declspec(naked) void _asm_generic2parm_retd(void)
 #ifdef AMD64ABI
     mov r15, rsi;
     mov rsi, rdi; // second parameter = parm
-    mov rdi, 0xFFFFFFFF; // first parameter= context
+    mov rdi, 0xfefefefe; // first parameter= context
+    mov rcx, 0xfefefefe; // call function
     mov rdx, rax; // third parameter = parm
-    mov rcx, 0xffffffff; // call function
     sub rsp, 128;
     call rcx;
     mov rsi, r15;
-    add rsp, 128;
-    movq [r15], xmm0;
-    mov rax, r15;
-    add rsi, 8;
 #else
-    mov ecx, 0xFFFFFFFF; // first parameter= context
-    mov edx, edi; // second parameter = parm
+    mov rdx, rdi; // second parameter = parm
+    mov rcx, 0xfefefefe; // first parameter= context
+    mov rdi, 0xfefefefe; // call function
     mov r8, rax; // third parameter = parm
-    mov edi, 0xffffffff; // call function
     sub rsp, 128;
     call edi;
-    add rsp, 128;
-    movq [rsi], xmm0;
-    mov rax, rsi;
-    add rsi, 8;
 #endif
+    movq [rsp], xmm0;
+    fld qword ptr [rsp];
+    add rsp, 128;
 #else
-    SAVE_STACK
-    mov edx, 0xFFFFFFFF;
-    push eax; // push parameter
-    push edi; // push parameter
-    push ecx; // push parameter
-    push edx; // push context pointer
-    mov edi, 0xffffffff;
-    call edi;
-    mov eax, esi;
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
+
+    sub esp, 16;
+    mov edx, 0xfefefefe;
+    mov ecx, 0xfefefefe;
+    mov dword ptr [esp], edx;
+    mov dword ptr [esp+4], edi;
+    mov dword ptr [esp+8], eax;
+    call ecx;
     add esp, 16;
-    RESTORE_STACK
+
 #endif
 _emit 0x89;
 _emit 0x90;
@@ -2254,37 +2085,37 @@ __declspec(naked) void _asm_generic2parm_retd_end(void) {}
 
 
 
-__declspec(naked) void _asm_generic1parm(void) // this prob neds to be fixed for ppc
+__declspec(naked) void _asm_generic1parm(void)
 {
   __asm {
 #ifdef TARGET_X64
 #ifdef AMD64ABI
-    mov rdi, 0xFFFFFFFF; // first parameter= context
+    mov rdi, 0xfefefefe; // first parameter= context
     mov r15, rsi;
     mov rsi, eax; // second parameter = parm
     sub rsp, 128;
-    mov rcx, 0xffffffff; // call function
+    mov rcx, 0xfefefefe; // call function
     call rcx;
     mov rsi, r15;
     add rsp, 128;
 #else
-    mov ecx, 0xFFFFFFFF; // first parameter= context
+    mov ecx, 0xfefefefe; // first parameter= context
     mov edx, eax; // second parameter = parm
-    mov edi, 0xffffffff; // call function
+    mov edi, 0xfefefefe; // call function
     sub rsp, 128;
     call edi;
     add rsp, 128;
 #endif
 #else
-    SAVE_STACK
-    mov edx, 0xFFFFFFFF;
+
+    mov edx, 0xfefefefe;
     sub esp, 8; // keep stack aligned
     push eax; // push parameter
     push edx; // push context pointer
-    mov edi, 0xffffffff;
+    mov edi, 0xfefefefe;
     call edi;
     add esp, 16;
-    RESTORE_STACK
+
 #endif
 
 _emit 0x89;
@@ -2308,42 +2139,37 @@ __declspec(naked) void _asm_generic1parm_retd(void) // 1 parameter returning dou
 {
   __asm {
 #ifdef TARGET_X64
+    sub rsp, 128;
 #ifdef AMD64ABI
-    mov r15, rsi;
-    mov rdi, 0xFFFFFFFF; // first parameter= context
-    mov rsi, rax; // second parameter = parm
-    mov rcx, 0xffffffff; // call function
-    sub rsp, 128;
+    mov rdi, 0xfefefefe; // first parameter = context pointer
+    mov rcx, 0xfefefefe; // function address
+    mov r15, rsi; // save rsi
+    mov rsi, rax; // second parameter = parameter
+
     call rcx;
+
     mov rsi, r15;
-    add rsp, 128;
-    movq [r15], xmm0;
-    mov rax, r15;
-    add rsi, 8;
 #else
-    mov ecx, 0xFFFFFFFF; // first parameter= context
-    mov edx, eax; // second parameter = parm
-    mov edi, 0xffffffff; // call function
-    sub rsp, 128;
+    mov ecx, 0xfefefefe; // first parameter= context
+    mov edi, 0xfefefefe; // call function
+
+    mov rdx, rax; // second parameter = parm
+
     call edi;
-    add rsp, 128;
-    movq [rsi], xmm0;
-    mov rax, rsi;
-    add rsi, 8;
 #endif
+    movq [rsp], xmm0;
+    fld qword ptr [rsp];
+    add rsp, 128;
 #else
-    SAVE_STACK
-    mov edx, 0xFFFFFFFF;
-    sub esp, 8; // keep stack aligned
-    push eax; // push parameter
-    push edx; // push context pointer
-    mov edi, 0xffffffff;
+
+    mov edx, 0xfefefefe; // context pointer
+    mov edi, 0xfefefefe; // func-addr
+    sub esp, 16;
+    mov dword ptr [esp+4], eax; // push parameter
+    mov dword ptr [esp], edx; // push context pointer
     call edi;
-    mov eax, esi;
-    fstp EEL_ASM_TYPE [esi];
-    add esi, EEL_F_SIZE;
     add esp, 16;
-    RESTORE_STACK
+
 #endif
 _emit 0x89;
 _emit 0x90;
@@ -2370,96 +2196,137 @@ __declspec(naked) void _asm_generic1parm_retd_end(void) {}
 __declspec(naked) void _asm_megabuf(void)
 {
   __asm {
-SAVE_STACK
+
 
 #ifdef TARGET_X64
 
 
 #ifdef AMD64ABI
 
-    mov r15, rsi;
-    mov rdi, 0xFFFFFFFF; // first parameter = context pointer
-    fld EEL_ASM_TYPE [eax];
-    mov rdx, 0xFFFFFFFF;
+    mov rdi, 0xfefefefe; // first parameter = context pointer
+
+    mov rdx, 0xfefefefe;
+
     fadd EEL_ASM_TYPE [rdx];
-    fistp dword ptr [r15];
-    xor rsi, rsi;
-    mov esi, dword ptr [r15]; // r15 = esi (from above)
-    mov edx, 0xffffffff;
+    fistp dword ptr [rsi];
+    sub rdx, rdx;
+
+    // check if (%rsi) is in range, and buffer available, otherwise call function
+    mov edx, dword ptr [rsi];
+    test rdx, 0xff800000; // 0xFFFFFFFF - (NSEEL_RAM_BLOCKS*NSEEL_RAM_ITEMSPERBLOCK - 1)
+    jnz label_28;
+    mov rax, rdx;
+    shr rax, 13;     // log2(NSEEL_RAM_ITEMSPERBLOCK) - log2(sizeof(void*))
+    and rax, 0x3F8;  // (NSEEL_RAM_BLOCKS-1)*sizeof(void*)
+    mov rax, qword ptr [rdi+rax];
+    test rax, rax;
+    jz label_28;
+    and rdx, 0xFFFF; // (NSEEL_RAM_ITEMSPERBLOCK-1)
+    shl rdx, 3;      // log2(sizeof(EEL_F))
+    add rax, rdx;
+    jmp label_29;
+
+
+label_28:
+    
+    mov r15, rsi; // save rsi
+    mov esi, rdx; // esi becomes second parameter (edi is first, context pointer)
+    mov edx, 0xfefefefe;
     sub rsp, 128;
     call edx;
-    mov rsi, r15;
+    mov rsi, r15; // restore rsi
     add rsp, 128;
-    and rax, rax;
-    jnz label_33;
-    mov rax, r15;
-    mov qword ptr [esi], 0;
-    add rsi, EEL_F_SIZE;
+label_29:
+    
+
+#else
+    mov ecx, 0xfefefefe; // first parameter = context pointer
+    mov edx, 0xfefefefe;
+    sub rdi, rdi;
+
+    fadd EEL_ASM_TYPE [rdx];
+
+    fistp dword ptr [esi];
+
+    // check if (%esi) is in range...
+    mov edi, dword ptr [rsi];
+    test edi, 0xff800000;   // 0xFFFFFFFF - (NSEEL_RAM_BLOCKS*NSEEL_RAM_ITEMSPERBLOCK - 1)
+    jnz label_30;
+    mov rax, rdi;
+    shr rax, 13;           // log2(NSEEL_RAM_ITEMSPERBLOCK) - log2(sizeof(void*))
+    and rax, 0x3F8;        // (NSEEL_RAM_BLOCKS-1)*sizeof(void*)
+    mov rax, qword ptr [rcx+rax];
+    test rax, rax;
+    jz label_30;
+    and rdi, 0xFFFF;   // (NSEEL_RAM_ITEMSPERBLOCK-1)
+    shl rdi, 3;        // log2(sizeof(EEL_F))
+    add rax, rdi;
+    jmp label_31;
+
+label_30:
+    
+    mov rdx, rdi; // rdx is second parameter (rcx is first)
+    mov edi, 0xfefefefe; // function ptr
+    sub rsp, 128;
+    call edi;
+    add rsp, 128;
+label_31:
+    
+#endif
+
+
+#else
+    mov edx, 0xfefefefe;
+#if EEL_F_SIZE == 8
+_emit 0xDC; // fadd qword ptr [0xfefefefe]
+_emit 0x05;
+_emit 0xFE;
+_emit 0xFE;
+_emit 0xFE;
+_emit 0xFE;
+#else
+_emit 0xD8; // fadd dword ptr [0xfefefefe]
+_emit 0x05;
+_emit 0xFE;
+_emit 0xFE;
+_emit 0xFE;
+_emit 0xFE;
+#endif
+    fistp dword ptr [esi];
+
+    // check if (%esi) is in range, and buffer available, otherwise call function
+    mov edi, dword ptr [esi];
+    test edi, 0xff800000;  // 0xFFFFFFFF - (NSEEL_RAM_BLOCKS*NSEEL_RAM_ITEMSPERBLOCK - 1)
+    jnz label_32;
+
+    mov eax, edi;
+    shr eax, 14;            // log2(NSEEL_RAM_ITEMSPERBLOCK) - log2(sizeof(void *))
+    and eax, 0x1FC;    // (NSEEL_RAM_BLOCKS-1)*sizeof(void*)
+    mov eax, dword ptr [edx+eax];
+    test eax, eax;
+    jz label_32;
+    and edi, 0xFFFF;  // (NSEEL_RAM_ITEMSPERBLOCK-1)
+    shl edi, 3;       // log2(sizeof(EEL_F))
+    add eax, edi;
+    jmp label_33;
+
+
+label_32:
+    
+    sub esp, 8; // keep stack aligned
+    push edi; // parameter
+    push edx; // push context pointer
+    mov edi, 0xfefefefe;
+    call edi;
+    add esp, 16;
+
 label_33:
     
 
-#else
-    mov ecx, 0xFFFFFFFF; // first parameter = context pointer
-    fld EEL_ASM_TYPE [eax];
-    mov edx, 0xFFFFFFFF;
-    fadd EEL_ASM_TYPE [rdx];
-    fistp dword ptr [esi];
-    xor rdx, rdx;
-    mov edx, dword ptr [esi];
-    mov edi, 0xffffffff;
-    sub rsp, 128;
-    call edi;
-    add rsp, 128;
-    and rax, rax;
-    jnz label_34;
-    mov rax, rsi;
-    mov qword ptr [esi], 0;
-    add esi, EEL_F_SIZE;
-label_34:
-    
-#endif
-
-
-#else
-    mov edx, 0xFFFFFFFF;
-    fld EEL_ASM_TYPE [eax];
-#if EEL_F_SIZE == 8
-_emit 0xDC; // fadd qword ptr [0xffffffff]
-_emit 0x05;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-#else
-_emit 0xD8; // fadd dword ptr [0xffffffff]
-_emit 0x05;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-_emit 0xFF;
-#endif
-    fistp dword ptr [esi];
-    sub esp, 8; // keep stack aligned
-    push dword ptr [esi]; // parameter
-    push edx; // push context pointer
-    mov edi, 0xffffffff;
-    call edi;
-    add esp, 16;
-    and eax, eax;
-    jnz label_35;
-    mov eax, esi;
-    mov dword ptr [esi], 0;
-#if EEL_F_SIZE == 8
-    mov dword ptr [esi+4], 0;
-#endif
-    add esi, EEL_F_SIZE;
-label_35:
-    
-
 
 #endif
 
-RESTORE_STACK
+
 
 _emit 0x89;
 _emit 0x90;
@@ -2478,6 +2345,485 @@ _emit 0x90;
 
 __declspec(naked) void _asm_megabuf_end(void) {}
 
+
+__declspec(naked) void _asm_gmegabuf(void)
+{
+  __asm {
+
+
+#ifdef TARGET_X64
+
+
+#ifdef AMD64ABI
+
+    mov r15, rsi;
+    mov rdi, 0xfefefefe; // first parameter = context pointer
+    mov rdx, 0xfefefefe;
+    fadd EEL_ASM_TYPE [rdx];
+    fistp dword ptr [r15];
+    xor rsi, rsi;
+    mov esi, dword ptr [r15]; // r15 = esi (from above)
+    mov edx, 0xfefefefe;
+    sub rsp, 128;
+    call edx;
+    mov rsi, r15;
+    add rsp, 128;
+
+#else
+    mov ecx, 0xfefefefe; // first parameter = context pointer
+    mov edx, 0xfefefefe;
+    fadd EEL_ASM_TYPE [rdx];
+    fistp dword ptr [esi];
+    xor rdx, rdx;
+    mov edx, dword ptr [esi];
+    mov edi, 0xfefefefe;
+    sub rsp, 128;
+    call edi;
+    add rsp, 128;
+#endif
+
+
+#else
+    mov edx, 0xfefefefe;
+#if EEL_F_SIZE == 8
+_emit 0xDC; // fadd qword ptr [0xfefefefe]
+_emit 0x05;
+_emit 0xFE;
+_emit 0xFE;
+_emit 0xFE;
+_emit 0xFE;
+#else
+_emit 0xD8; // fadd dword ptr [0xfefefefe]
+_emit 0x05;
+_emit 0xFE;
+_emit 0xFE;
+_emit 0xFE;
+_emit 0xFE;
+#endif
+    fistp dword ptr [esi];
+    sub esp, 8; // keep stack aligned
+    push dword ptr [esi]; // parameter
+    push edx; // push context pointer
+    mov edi, 0xfefefefe;
+    call edi;
+    add esp, 16;
+
+#endif
+
+
+
+_emit 0x89;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+ }
+}
+
+__declspec(naked) void _asm_gmegabuf_end(void) {}
+
+__declspec(naked) void nseel_asm_stack_push(void)
+{
+#ifdef TARGET_X64
+  __asm {
+    mov rdi, 0xfefefefe;
+    mov rcx, qword ptr [rax];
+    mov rax, qword ptr [rdi];
+    add rax, 8;
+    mov rdx, 0xFEFEFEFE;
+    and rax, rdx;
+    mov rdx, 0xFEFEFEFE;
+    or rax, rdx;
+    mov qword ptr [rax], rcx;
+    mov qword ptr [rdi], rax;
+_emit 0x89;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+    }
+#else
+
+  __asm {
+    mov edi, 0xfefefefe;
+
+    mov ecx, dword ptr [eax];
+    mov edx, dword ptr [eax+4];
+
+    mov eax, dword ptr [edi];
+
+    add eax, 8;
+    and eax, 0xfefefefe;
+    or eax, 0xfefefefe;
+
+    mov dword ptr [eax], ecx;
+    mov dword ptr [eax+4], edx;
+
+    mov dword ptr [edi], eax;
+_emit 0x89;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+  }
+
+#endif
+
+}
+__declspec(naked) void nseel_asm_stack_push_end(void) {}
+
+
+
+__declspec(naked) void nseel_asm_stack_pop(void)
+{
+#ifdef TARGET_X64
+
+  __asm {
+      mov rdi, 0xfefefefe;
+      mov rcx, qword ptr [rdi];
+      movq xmm0, [rcx];
+      sub rcx, 8;
+      mov rdx, 0xFEFEFEFE;
+      and rcx, rdx;
+      mov rdx, 0xFEFEFEFE;
+      or rcx, rdx;
+      mov qword ptr [rdi], rcx;
+      movq [eax], xmm0;
+_emit 0x89;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+    }
+
+#else
+
+  __asm {
+    mov edi, 0xfefefefe;
+    mov ecx, dword ptr [edi];
+    fld EEL_ASM_TYPE [ecx];
+    sub ecx, 8;
+    and ecx, 0xfefefefe;
+    or ecx, 0xfefefefe;
+    mov dword ptr [edi], ecx;
+    fstp EEL_ASM_TYPE [eax];
+_emit 0x89;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+  }
+
+#endif
+}
+__declspec(naked) void nseel_asm_stack_pop_end(void) {}
+
+
+__declspec(naked) void nseel_asm_stack_pop_fast(void)
+{
+#ifdef TARGET_X64
+
+  __asm {
+      mov rdi, 0xfefefefe;
+      mov rcx, qword ptr [rdi];
+      mov rax, rcx;
+      sub rcx, 8;
+      mov rdx, 0xFEFEFEFE;
+      and rcx, rdx;
+      mov rdx, 0xFEFEFEFE;
+      or rcx, rdx;
+      mov qword ptr [rdi], rcx;
+_emit 0x89;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+    }
+
+#else
+
+  __asm {
+    mov edi, 0xfefefefe;
+    mov ecx, dword ptr [edi];
+    mov eax, ecx;
+    sub ecx, 8;
+    and ecx, 0xfefefefe;
+    or ecx, 0xfefefefe;
+    mov dword ptr [edi], ecx;
+_emit 0x89;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+  }
+
+#endif
+}
+__declspec(naked) void nseel_asm_stack_pop_fast_end(void) {}
+
+__declspec(naked) void nseel_asm_stack_peek_int(void)
+{
+#ifdef TARGET_X64
+
+  __asm {
+    mov rdi, 0xfefefefe;
+    mov rax, qword ptr [rdi];
+    mov rdx, 0xfefefefe;
+    sub rax, rdx;
+    mov rdx, 0xFEFEFEFE;
+    and rax, rdx;
+    mov rdx, 0xFEFEFEFE;
+    or rax, rdx;
+_emit 0x89;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+  }
+
+#else
+
+  __asm {
+    mov edi, 0xfefefefe;
+    mov eax, dword ptr [edi];
+    mov edx, 0xfefefefe;
+    sub eax, edx;
+    and eax, 0xfefefefe;
+    or eax, 0xfefefefe;
+_emit 0x89;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+  }
+
+#endif
+
+}
+__declspec(naked) void nseel_asm_stack_peek_int_end(void) {}
+
+
+
+__declspec(naked) void nseel_asm_stack_peek(void)
+{
+#ifdef TARGET_X64
+
+  __asm {
+    mov rdi, 0xfefefefe;
+    fistp dword ptr [rsi];
+    mov rax, qword ptr [rdi];
+    mov rdx, qword ptr [rsi];
+    shl rdx, 3; // log2(sizeof(EEL_F))
+    sub rax, rdx;
+    mov rdx, 0xFEFEFEFE;
+    and rax, rdx;
+    mov rdx, 0xFEFEFEFE;
+    or rax, rdx;
+_emit 0x89;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+  }
+
+#else
+
+  __asm {
+    mov edi, 0xfefefefe;
+    fistp dword ptr [esi];
+    mov eax, dword ptr [edi];
+    mov edx, dword ptr [esi];
+    shl edx, 3; // log2(sizeof(EEL_F))
+    sub eax, edx;
+    and eax, 0xfefefefe;
+    or eax, 0xfefefefe;
+_emit 0x89;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+  }
+
+#endif
+
+}
+__declspec(naked) void nseel_asm_stack_peek_end(void) {}
+
+
+__declspec(naked) void nseel_asm_stack_peek_top(void)
+{
+#ifdef TARGET_X64
+
+  __asm {
+    mov rdi, 0xfefefefe;
+    mov rax, qword ptr [rdi];
+_emit 0x89;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+  }
+
+#else
+
+  __asm {
+    mov edi, 0xfefefefe;
+    mov eax, dword ptr [edi];
+_emit 0x89;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+  }
+
+#endif
+
+}
+__declspec(naked) void nseel_asm_stack_peek_top_end(void) {}
+
+__declspec(naked) void nseel_asm_stack_exch(void)
+{
+#ifdef TARGET_X64
+
+  __asm {
+    mov rdi, 0xfefefefe;
+    mov rcx, qword ptr [rdi];
+    movq xmm0, [rcx];
+    movq xmm1, [rax];
+    movq [rax], xmm0;
+    movq [rcx], xmm1;
+_emit 0x89;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+  }
+
+#else
+
+  __asm {
+    mov edi, 0xfefefefe;
+    mov ecx, dword ptr [edi];
+    fld EEL_ASM_TYPE [ecx];
+    fld EEL_ASM_TYPE [eax];
+    fstp EEL_ASM_TYPE [ecx];
+    fstp EEL_ASM_TYPE [eax];
+_emit 0x89;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+_emit 0x90;
+  }
+
+#endif
+
+}
+__declspec(naked) void nseel_asm_stack_exch_end(void) {}
 
 #ifdef TARGET_X64
 __declspec(naked) void win64_callcode()

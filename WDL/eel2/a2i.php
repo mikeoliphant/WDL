@@ -111,9 +111,11 @@ while (($line = fgets($in)))
 
           if ($inst=="j") $inst="jmp";
 
+          //if ($inst == "fdiv" && $parms == "") $inst="fdivr";
+
           if ($inst != "call" && substr($inst,-2) == "ll") $suffix = "ll";
           else if ($inst != "call" && $inst != "fmul" && substr($inst,-1) == "l") $suffix = "l";
-          else if (substr($inst,0,1)=="f" && $inst != "fcos" && $inst != "fsincos" && $inst != "fabs" && substr($inst,-1) == "s") $suffix = "s";
+          else if (substr($inst,0,1)=="f" && $inst != "fcos" && $inst != "fsincos" && $inst != "fabs" && $inst != "fchs" && substr($inst,-1) == "s") $suffix = "s";
 
 
           if ($suffix != "" && $inst != "jl") $inst = substr($inst,0,-strlen($suffix));
@@ -129,7 +131,7 @@ while (($line = fgets($in)))
           else if ($suffix == "l") $suffixstr = "dword ptr ";
           else if ($suffix == "s") $suffixstr = "dword ptr ";
           else $suffixstr = "";
-          $parms=preg_replace("/([0-9]+)\\((.*)\\)/",$suffixstr . "[$2+$1]",$parms);
+          $parms=preg_replace("/(-?[0-9]+)\\((.*)\\)/",$suffixstr . "[$2+$1]",$parms);
           $parms=preg_replace("/\\((.*)\\)/",$suffixstr . "[$1]",$parms);
 
 
@@ -165,7 +167,7 @@ while (($line = fgets($in)))
               $parms = $bthist[$d];
             }
           }
-          if (stristr($parms,"[0xffffffff]"))
+          if (stristr($parms,"[0xfefefefe]"))
           {
             if ($inst == "fmul" || $inst=="fadd" || $inst == "fcomp")
             { 
@@ -174,19 +176,19 @@ while (($line = fgets($in)))
               if ($inst=="fcomp") $hdr="0x1D";
 
               fputs($out,"#if EEL_F_SIZE == 8\n");
-              fputs($out,"_emit 0xDC; // $inst qword ptr [0xffffffff]\n");
+              fputs($out,"_emit 0xDC; // $inst qword ptr [0xfefefefe]\n");
               fputs($out,"_emit $hdr;\n");
-              fputs($out,"_emit 0xFF;\n");
-              fputs($out,"_emit 0xFF;\n");
-              fputs($out,"_emit 0xFF;\n");
-              fputs($out,"_emit 0xFF;\n");
+              fputs($out,"_emit 0xFE;\n");
+              fputs($out,"_emit 0xFE;\n");
+              fputs($out,"_emit 0xFE;\n");
+              fputs($out,"_emit 0xFE;\n");
               fputs($out,"#else\n");
-              fputs($out,"_emit 0xD8; // $inst dword ptr [0xffffffff]\n");
+              fputs($out,"_emit 0xD8; // $inst dword ptr [0xfefefefe]\n");
               fputs($out,"_emit $hdr;\n");
-              fputs($out,"_emit 0xFF;\n");
-              fputs($out,"_emit 0xFF;\n");
-              fputs($out,"_emit 0xFF;\n");
-              fputs($out,"_emit 0xFF;\n");
+              fputs($out,"_emit 0xFE;\n");
+              fputs($out,"_emit 0xFE;\n");
+              fputs($out,"_emit 0xFE;\n");
+              fputs($out,"_emit 0xFE;\n");
               fputs($out,"#endif\n");
               $nowrite=1;
             }
