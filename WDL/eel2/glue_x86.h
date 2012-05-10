@@ -160,7 +160,7 @@ const static unsigned int GLUE_FUNC_LEAVE[1];
       {0xDD,0x07}, // fld qword [edi]
       {0xDD,0x01}, // fld qword [ecx]
     };
-    memcpy(b,tab[wv],GLUE_SET_PX_FROM_WTP_SIZE);
+    memcpy(b,tab[wv],GLUE_PUSH_VAL_AT_PX_TO_FPSTACK_SIZE);
   }
 
 #define GLUE_POP_FPSTACK_TO_WTP_TO_PX_SIZE (GLUE_SET_PX_FROM_WTP_SIZE + sizeof(GLUE_POP_FPSTACK_TO_WTP))
@@ -269,9 +269,7 @@ static const unsigned char GLUE_LOOP_LOADCNT[]={
 };
 static const unsigned char GLUE_LOOP_CLAMPCNT[]={
         0x81, 0xf9, INT_TO_LECHARS(NSEEL_LOOPFUNC_SUPPORT_MAXLEN), // cmp ecx, NSEEL_LOOPFUNC_SUPPORT_MAXLEN
-        0x0F, 0x8C, 0,0,0,0,  // JL <skipptr>
-};
-static const unsigned char GLUE_LOOP_CLAMPCNT2[]={
+        0x0F, 0x8C, 5,0,0,0,  // JL over-the-mov
         0xB9, INT_TO_LECHARS(NSEEL_LOOPFUNC_SUPPORT_MAXLEN), // mov ecx, NSEEL_LOOPFUNC_SUPPORT_MAXLEN
 };
 static const unsigned char GLUE_LOOP_BEGIN[]={ 

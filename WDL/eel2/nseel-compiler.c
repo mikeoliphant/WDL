@@ -100,7 +100,12 @@
 
   */
 
-#ifdef __ppc__
+#ifdef EEL_TARGET_PORTABLE
+
+#define EEL_DOESNT_NEED_EXEC_PERMS
+#include "glue_port.h"
+
+#elif defined(__ppc__)
 
 #include "glue_ppc.h"
 
@@ -114,78 +119,79 @@
 
 #endif
 
-
-static void *GLUE_realAddress(void *fn, void *fn_e, int *size)
-{
-#if defined(_MSC_VER) || defined(__LP64__)
-
-  unsigned char *p;
-
-#if defined(_DEBUG) && !defined(__LP64__)
-  if (*(unsigned char *)fn == 0xE9) // this means jump to the following address
+#ifndef EEL_TARGET_PORTABLE
+  static void *GLUE_realAddress(void *fn, void *fn_e, int *size)
   {
-    fn = ((unsigned char *)fn) + *(int *)((char *)fn+1) + 5;
-  }
-#endif
+  #if defined(_MSC_VER) || defined(__LP64__)
 
-  // this may not work in debug mode?
-  p=(unsigned char *)fn;
-  for (;;)
-  {
-    int a;
-    for (a=0;a<12;a++)
+    unsigned char *p;
+
+  #if defined(_DEBUG) && !defined(__LP64__)
+    if (*(unsigned char *)fn == 0xE9) // this means jump to the following address
     {
-      if (p[a] != (a?0x90:0x89)) break;
+      fn = ((unsigned char *)fn) + *(int *)((char *)fn+1) + 5;
     }
-    if (a>=12)
-    {
-      *size = (char *)p - (char *)fn;
-    //  if (*size<0) MessageBox(NULL,"expect poof","a",0);
-      return fn;
-    }
-    p++;
-  }
-#else
+  #endif
 
-  // gcc, 32 bit (ppc or x86)
-  unsigned char *endp=(unsigned char *)fn_e - sizeof(GLUE_RET);
-  if (endp <= (unsigned char *)fn) *size=0;
-  else
-  {
-    while (endp > (unsigned char *)fn && memcmp(endp,&GLUE_RET,sizeof(GLUE_RET))) endp-=sizeof(GLUE_RET);
-    *size = endp - (unsigned char *)fn;
-#ifndef __ppc__
-    // x86, gcc: look for push ebp, mov ebp, esp (0x55, 0x89, 0xE5), and 0xC9 (leave) at end
-    if (*size >= 4)
+    // this may not work in debug mode?
+    p=(unsigned char *)fn;
+    for (;;)
     {
-      int hadnop=0;
-      unsigned char *pfn = (unsigned char *)fn;
+      int a;
+      for (a=0;a<12;a++)
+      {
+        if (p[a] != (a?0x90:0x89)) break;
+      }
+      if (a>=12)
+      {
+        *size = (char *)p - (char *)fn;
+      //  if (*size<0) MessageBox(NULL,"expect poof","a",0);
+        return fn;
+      }
+      p++;
+    }
+  #else
+
+    // gcc, 32 bit (ppc or x86)
+    unsigned char *endp=(unsigned char *)fn_e - sizeof(GLUE_RET);
+    if (endp <= (unsigned char *)fn) *size=0;
+    else
+    {
+      while (endp > (unsigned char *)fn && memcmp(endp,&GLUE_RET,sizeof(GLUE_RET))) endp-=sizeof(GLUE_RET);
+      *size = endp - (unsigned char *)fn;
+  #ifndef __ppc__
+      // x86, gcc: look for push ebp, mov ebp, esp (0x55, 0x89, 0xE5), and 0xC9 (leave) at end
+      if (*size >= 4)
+      {
+        int hadnop=0;
+        unsigned char *pfn = (unsigned char *)fn;
       
-      // in debug mode, there will be nops before the stack frame code
-      while (pfn < endp-4 && *pfn == 0x90) 
-      {
-        hadnop++;
-        pfn++;
-      }
-      if (endp[-1] == 0xC9 && pfn < endp-4 && pfn[0] == 0x55 && pfn[1] == 0x89 && pfn[2] == 0xE5)
-      {
-        endp--;
-        pfn += 3;
+        // in debug mode, there will be nops before the stack frame code
+        while (pfn < endp-4 && *pfn == 0x90) 
+        {
+          hadnop++;
+          pfn++;
+        }
+        if (endp[-1] == 0xC9 && pfn < endp-4 && pfn[0] == 0x55 && pfn[1] == 0x89 && pfn[2] == 0xE5)
+        {
+          endp--;
+          pfn += 3;
         
-        // if had nops (debug mode), skip any sub esp, byte
-        if (hadnop && pfn < endp-2 && pfn[0] == 0x83 && pfn[1] == 0xEC) pfn+=3;
+          // if had nops (debug mode), skip any sub esp, byte
+          if (hadnop && pfn < endp-2 && pfn[0] == 0x83 && pfn[1] == 0xEC) pfn+=3;
         
-        *size = endp - pfn;
-        if (*size < 0) *size=0;
-        return pfn;
+          *size = endp - pfn;
+          if (*size < 0) *size=0;
+          return pfn;
+        }
       }
+  #endif
     }
-#endif
-  }
-  return fn;
+    return fn;
 
-#endif
-}
+  #endif
+  }
+#endif 
 
 
 
@@ -306,9 +312,19 @@ static opcodeRec *newOpCode(compileContext *ctx)
 
 static void freeBlocks(llBlock **start);
 
+#ifndef DECL_ASMFUNC
 #define DECL_ASMFUNC(x)         \
   void nseel_asm_##x(void);        \
-  void nseel_asm_##x##_end(void);    \
+  void nseel_asm_##x##_end(void);
+
+
+void _asm_megabuf(void);
+void _asm_megabuf_end(void);
+void _asm_gmegabuf(void);
+void _asm_gmegabuf_end(void);
+
+#endif
+
 
   DECL_ASMFUNC(booltofp)
   DECL_ASMFUNC(fptobool)
@@ -381,12 +397,13 @@ static void freeBlocks(llBlock **start);
   DECL_ASMFUNC(stack_exch)
 #endif
 
-static void NSEEL_PProc_GRAM(void *data, int data_size, compileContext *ctx)
+static void *NSEEL_PProc_GRAM(void *data, int data_size, compileContext *ctx)
 {
-  if (data_size>0) EEL_GLUE_set_immediate(data, ctx->gram_blocks);
+  if (data_size>0) data=EEL_GLUE_set_immediate(data, ctx->gram_blocks);
+  return data;
 }
 
-static void NSEEL_PProc_Stack(void *data, int data_size, compileContext *ctx)
+static void *NSEEL_PProc_Stack(void *data, int data_size, compileContext *ctx)
 {
   codeHandleType *ch=ctx->tmpCodeHandle;
 
@@ -402,9 +419,10 @@ static void NSEEL_PProc_Stack(void *data, int data_size, compileContext *ctx)
     data=EEL_GLUE_set_immediate(data, (void*) m1); // and
     data=EEL_GLUE_set_immediate(data, (void *)((UINT_PTR)ch->stack&~m1)); //or
   }
+  return data;
 }
 
-static void NSEEL_PProc_Stack_PeekInt(void *data, int data_size, compileContext *ctx, INT_PTR offs)
+static void *NSEEL_PProc_Stack_PeekInt(void *data, int data_size, compileContext *ctx, INT_PTR offs)
 {
   codeHandleType *ch=ctx->tmpCodeHandle;
 
@@ -421,8 +439,9 @@ static void NSEEL_PProc_Stack_PeekInt(void *data, int data_size, compileContext 
     data=EEL_GLUE_set_immediate(data, (void*) m1); // and
     data=EEL_GLUE_set_immediate(data, (void *)((UINT_PTR)ch->stack&~m1)); //or
   }
+  return data;
 }
-static void NSEEL_PProc_Stack_PeekTop(void *data, int data_size, compileContext *ctx)
+static void *NSEEL_PProc_Stack_PeekTop(void *data, int data_size, compileContext *ctx)
 {
   codeHandleType *ch=ctx->tmpCodeHandle;
 
@@ -435,6 +454,7 @@ static void NSEEL_PProc_Stack_PeekTop(void *data, int data_size, compileContext 
 
     data=EEL_GLUE_set_immediate(data, (void *)stackptr);
   }
+  return data;
 }
 
 #ifndef __ppc__
@@ -449,7 +469,7 @@ static const EEL_F eel_zero=0.0, eel_one=1.0;
 static double __floor(double a) { return floor(a); }
 #endif
 
-void NSEEL_PProc_RAM_freeblocks(void *data, int data_size, compileContext *ctx);
+void *NSEEL_PProc_RAM_freeblocks(void *data, int data_size, compileContext *ctx);
 
 #ifdef NSEEL_EEL1_COMPAT_MODE
 static double eel1band(double a, double b)
@@ -516,7 +536,7 @@ static functionType fnTable1[] = {
   { "_equal",  nseel_asm_equal,nseel_asm_equal_end, 2|NSEEL_NPARAMS_FLAG_CONST|BIF_TWOPARMSONFPSTACK_LAZY|BIF_RETURNSBOOL|BIF_FPSTACKUSE(2), {&g_closefact} },
   { "_noteq",  nseel_asm_notequal,nseel_asm_notequal_end, 2|NSEEL_NPARAMS_FLAG_CONST|BIF_TWOPARMSONFPSTACK_LAZY|BIF_RETURNSBOOL|BIF_FPSTACKUSE(2), {&g_closefact} },
 
-#ifdef __ppc__
+#if defined(__ppc__) || defined(EEL_TARGET_PORTABLE)
   { "_above",  nseel_asm_above,nseel_asm_above_end, 2|NSEEL_NPARAMS_FLAG_CONST|BIF_LASTPARMONSTACK|BIF_RETURNSBOOL },
   { "_aboeq",  nseel_asm_aboveeq,nseel_asm_aboveeq_end, 2|NSEEL_NPARAMS_FLAG_CONST|BIF_LASTPARMONSTACK|BIF_RETURNSBOOL },
   { "_below",  nseel_asm_below,nseel_asm_below_end, 2|NSEEL_NPARAMS_FLAG_CONST|BIF_TWOPARMSONFPSTACK|BIF_RETURNSBOOL },
@@ -543,7 +563,7 @@ static functionType fnTable1[] = {
   { "_modop",nseel_asm_mod_op,nseel_asm_mod_op_end,2|BIF_LASTPARMONSTACK|BIF_FPSTACKUSE(2)}, 
 
 
-#ifdef __ppc__
+#if defined(__ppc__) || defined(EEL_TARGET_PORTABLE)
    { "sin",   nseel_asm_1pdd,nseel_asm_1pdd_end,   1|NSEEL_NPARAMS_FLAG_CONST|BIF_RETURNSONSTACK|BIF_LASTPARMONSTACK, {&sin} },
    { "cos",    nseel_asm_1pdd,nseel_asm_1pdd_end,   1|NSEEL_NPARAMS_FLAG_CONST|BIF_RETURNSONSTACK|BIF_LASTPARMONSTACK, {&cos} },
    { "tan",    nseel_asm_1pdd,nseel_asm_1pdd_end,   1|NSEEL_NPARAMS_FLAG_CONST|BIF_RETURNSONSTACK|BIF_LASTPARMONSTACK, {&tan}  },
@@ -579,7 +599,7 @@ static functionType fnTable1[] = {
 #endif
    { "ceil",   nseel_asm_1pdd,nseel_asm_1pdd_end,  1|NSEEL_NPARAMS_FLAG_CONST|BIF_RETURNSONSTACK|BIF_LASTPARMONSTACK, {&ceil} },
 
-#ifdef __ppc__
+#if defined(__ppc__) || defined(EEL_TARGET_PORTABLE)
    { "invsqrt",   nseel_asm_invsqrt,nseel_asm_invsqrt_end,  1|NSEEL_NPARAMS_FLAG_CONST|BIF_RETURNSONSTACK|BIF_LASTPARMONSTACK,  },
 #else
    { "invsqrt",   nseel_asm_invsqrt,nseel_asm_invsqrt_end,  1|NSEEL_NPARAMS_FLAG_CONST|BIF_RETURNSONSTACK|BIF_LASTPARMONSTACK|BIF_FPSTACKUSE(3), {&negativezeropointfive, &onepointfive} },
@@ -601,9 +621,13 @@ static functionType fnTable1[] = {
 #endif // end EEL1 compat
 
 
-
+#ifdef EEL_TARGET_PORTABLE
+  {"_mem",_asm_megabuf,_asm_megabuf_end,1|BIF_LASTPARMONSTACK,{&__NSEEL_RAMAlloc},NSEEL_PProc_RAM},
+  {"_gmem",_asm_megabuf,_asm_megabuf_end,1|BIF_LASTPARMONSTACK,{&__NSEEL_RAMAllocGMEM},NSEEL_PProc_GRAM},
+#else
   {"_mem",_asm_megabuf,_asm_megabuf_end,1|BIF_LASTPARMONSTACK|BIF_FPSTACKUSE(1),{&g_closefact,&__NSEEL_RAMAlloc},NSEEL_PProc_RAM},
   {"_gmem",_asm_gmegabuf,_asm_gmegabuf_end,1|BIF_LASTPARMONSTACK|BIF_FPSTACKUSE(1),{&g_closefact,&__NSEEL_RAMAllocGMEM},NSEEL_PProc_GRAM},
+#endif
   {"freembuf",_asm_generic1parm,_asm_generic1parm_end,1,{&__NSEEL_RAM_MemFree},NSEEL_PProc_RAM_freeblocks},
   {"memcpy",_asm_generic3parm,_asm_generic3parm_end,3,{&__NSEEL_RAM_MemCpy},NSEEL_PProc_RAM},
   {"memset",_asm_generic3parm,_asm_generic3parm_end,3,{&__NSEEL_RAM_MemSet},NSEEL_PProc_RAM},
@@ -639,7 +663,7 @@ int NSEEL_init() // returns 0 on success
   return 0;
 }
 
-void NSEEL_addfunctionex2(const char *name, int nparms, char *code_startaddr, int code_len, void *pproc, void *fptr, void *fptr2)
+void NSEEL_addfunctionex2(const char *name, int nparms, char *code_startaddr, int code_len, NSEEL_PPPROC pproc, void *fptr, void *fptr2)
 {
   if (!fnTableUser || !(fnTableUser_size&7))
   {
@@ -662,7 +686,7 @@ void NSEEL_addfunctionex2(const char *name, int nparms, char *code_startaddr, in
     fnTableUser[fnTableUser_size].name = name;
     fnTableUser[fnTableUser_size].afunc = code_startaddr;
     fnTableUser[fnTableUser_size].func_e = code_startaddr + code_len;
-    fnTableUser[fnTableUser_size].pProc = (NSEEL_PPPROC) pproc;
+    fnTableUser[fnTableUser_size].pProc = pproc;
     fnTableUser[fnTableUser_size].replptrs[0]=fptr;
     fnTableUser[fnTableUser_size].replptrs[1]=fptr2;
     fnTableUser_size++;
@@ -692,7 +716,7 @@ static void freeBlocks(llBlock **start)
 //---------------------------------------------------------------------------------------------------------------
 static void *__newBlock(llBlock **start, int size, char wantMprotect)
 {
-#ifdef _WIN32
+#if !defined(EEL_DOESNT_NEED_EXEC_PERMS) && defined(_WIN32)
   DWORD ov;
   UINT_PTR offs,eoffs;
 #endif
@@ -710,6 +734,7 @@ static void *__newBlock(llBlock **start, int size, char wantMprotect)
   llb = (llBlock *)malloc(alloc_size); // grab bigger block if absolutely necessary (heh)
   if (!llb) return NULL;
   
+#ifndef EEL_DOESNT_NEED_EXEC_PERMS
   if (wantMprotect) 
   {
   #ifdef _WIN32
@@ -732,6 +757,7 @@ static void *__newBlock(llBlock **start, int size, char wantMprotect)
     }
   #endif
   }
+#endif
   llb->sizeused=(size+7)&~7;
   llb->next = *start;  
   *start = llb;
@@ -950,10 +976,14 @@ static void *nseel_getBuiltinFunctionAddress(compileContext *ctx,
     case FN_SUB: *abiInfo = BIF_RETURNSONSTACK|BIF_TWOPARMSONFPSTACK|BIF_FPSTACKUSE(2); RF(sub);
     case FN_MULTIPLY: *abiInfo = BIF_RETURNSONSTACK|BIF_TWOPARMSONFPSTACK_LAZY|BIF_FPSTACKUSE(2); RF(mul);
     case FN_DIVIDE: *abiInfo = BIF_RETURNSONSTACK|BIF_TWOPARMSONFPSTACK|BIF_FPSTACKUSE(2); RF(div);
-    case FN_JOIN_STATEMENTS: RF(exec2);
+#ifndef EEL_TARGET_PORTABLE
+    case FN_JOIN_STATEMENTS: RF(exec2); // shouldn't ever be used anyway, but scared to remove
+#endif
     case FN_AND: *abiInfo = BIF_RETURNSONSTACK|BIF_TWOPARMSONFPSTACK_LAZY|BIF_FPSTACKUSE(2); RF(and);
     case FN_OR: *abiInfo = BIF_RETURNSONSTACK|BIF_TWOPARMSONFPSTACK_LAZY|BIF_FPSTACKUSE(2); RF(or);
-    case FN_UPLUS: RF(uplus); 
+#ifndef EEL_TARGET_PORTABLE
+    case FN_UPLUS: RF(uplus);   // shouldn't ever be used anyway, but scared to remove
+#endif
     case FN_UMINUS: *abiInfo = BIF_RETURNSONSTACK|BIF_LASTPARMONSTACK; RF(uminus);
 #undef RF
 
@@ -1182,321 +1212,324 @@ start_over: // when an opcode changed substantially in optimization, goto here t
   retv_parm[0] = optimizeOpcodes(ctx,op->parms.parms[0], needsResult || 
       (FNPTR_HAS_CONDITIONAL_EXEC(op) && (retv_parm[1] || retv_parm[2] || op->opcodeType <= OPCODETYPE_FUNC1)) );
 
-  if (op->fntype >= 0 && op->fntype < FUNCTYPE_SIMPLEMAX)
+  if (op->opcodeType != OPCODETYPE_MOREPARAMS)
   {
-    if (op->opcodeType == OPCODETYPE_FUNC1) // within FUNCTYPE_SIMPLE
+    if (op->fntype >= 0 && op->fntype < FUNCTYPE_SIMPLEMAX)
     {
-      if (op->parms.parms[0]->opcodeType == OPCODETYPE_DIRECTVALUE)
+      if (op->opcodeType == OPCODETYPE_FUNC1) // within FUNCTYPE_SIMPLE
       {
-        switch (op->fntype)
+        if (op->parms.parms[0]->opcodeType == OPCODETYPE_DIRECTVALUE)
         {
-          case FN_UMINUS:
-            op->opcodeType = OPCODETYPE_DIRECTVALUE;
-            op->parms.dv.directValue = - op->parms.parms[0]->parms.dv.directValue;
-            op->parms.dv.valuePtr=NULL;
-          goto start_over;
-          case FN_UPLUS:
-            op->opcodeType = OPCODETYPE_DIRECTVALUE;
-            op->parms.dv.directValue = op->parms.parms[0]->parms.dv.directValue;
-            op->parms.dv.valuePtr=NULL;
-          goto start_over;
+          switch (op->fntype)
+          {
+            case FN_UMINUS:
+              op->opcodeType = OPCODETYPE_DIRECTVALUE;
+              op->parms.dv.directValue = - op->parms.parms[0]->parms.dv.directValue;
+              op->parms.dv.valuePtr=NULL;
+            goto start_over;
+            case FN_UPLUS:
+              op->opcodeType = OPCODETYPE_DIRECTVALUE;
+              op->parms.dv.directValue = op->parms.parms[0]->parms.dv.directValue;
+              op->parms.dv.valuePtr=NULL;
+            goto start_over;
+          }
         }
       }
-    }
-    else if (op->opcodeType == OPCODETYPE_FUNC2)  // within FUNCTYPE_SIMPLE
-    {
-      int dv0 = op->parms.parms[0]->opcodeType == OPCODETYPE_DIRECTVALUE;
-      int dv1 = op->parms.parms[1]->opcodeType == OPCODETYPE_DIRECTVALUE;
-      if (dv0 && dv1)
+      else if (op->opcodeType == OPCODETYPE_FUNC2)  // within FUNCTYPE_SIMPLE
       {
-        switch (op->fntype)
+        int dv0 = op->parms.parms[0]->opcodeType == OPCODETYPE_DIRECTVALUE;
+        int dv1 = op->parms.parms[1]->opcodeType == OPCODETYPE_DIRECTVALUE;
+        if (dv0 && dv1)
         {
-          case FN_DIVIDE:
-            op->opcodeType = OPCODETYPE_DIRECTVALUE;
-            op->parms.dv.directValue = op->parms.parms[0]->parms.dv.directValue / op->parms.parms[1]->parms.dv.directValue;
-            op->parms.dv.valuePtr=NULL;
-          goto start_over;
-          case FN_MULTIPLY:
-            op->opcodeType = OPCODETYPE_DIRECTVALUE;
-            op->parms.dv.directValue = op->parms.parms[0]->parms.dv.directValue * op->parms.parms[1]->parms.dv.directValue;
-            op->parms.dv.valuePtr=NULL;
-          goto start_over;
-          case FN_ADD:
-            op->opcodeType = OPCODETYPE_DIRECTVALUE;
-            op->parms.dv.directValue = op->parms.parms[0]->parms.dv.directValue + op->parms.parms[1]->parms.dv.directValue;
-            op->parms.dv.valuePtr=NULL;
-          goto start_over;
-          case FN_SUB:
-            op->opcodeType = OPCODETYPE_DIRECTVALUE;
-            op->parms.dv.directValue = op->parms.parms[0]->parms.dv.directValue - op->parms.parms[1]->parms.dv.directValue;
-            op->parms.dv.valuePtr=NULL;
-          goto start_over;
-          case FN_AND:
-            op->opcodeType = OPCODETYPE_DIRECTVALUE;
-            op->parms.dv.directValue = (double) (((WDL_INT64)op->parms.parms[0]->parms.dv.directValue) & ((WDL_INT64)op->parms.parms[1]->parms.dv.directValue));
-            op->parms.dv.valuePtr=NULL;
-          goto start_over;
-          case FN_OR:
-            op->opcodeType = OPCODETYPE_DIRECTVALUE;
-            op->parms.dv.directValue = (double) (((WDL_INT64)op->parms.parms[0]->parms.dv.directValue) | ((WDL_INT64)op->parms.parms[1]->parms.dv.directValue));
-            op->parms.dv.valuePtr=NULL;
-          goto start_over;
+          switch (op->fntype)
+          {
+            case FN_DIVIDE:
+              op->opcodeType = OPCODETYPE_DIRECTVALUE;
+              op->parms.dv.directValue = op->parms.parms[0]->parms.dv.directValue / op->parms.parms[1]->parms.dv.directValue;
+              op->parms.dv.valuePtr=NULL;
+            goto start_over;
+            case FN_MULTIPLY:
+              op->opcodeType = OPCODETYPE_DIRECTVALUE;
+              op->parms.dv.directValue = op->parms.parms[0]->parms.dv.directValue * op->parms.parms[1]->parms.dv.directValue;
+              op->parms.dv.valuePtr=NULL;
+            goto start_over;
+            case FN_ADD:
+              op->opcodeType = OPCODETYPE_DIRECTVALUE;
+              op->parms.dv.directValue = op->parms.parms[0]->parms.dv.directValue + op->parms.parms[1]->parms.dv.directValue;
+              op->parms.dv.valuePtr=NULL;
+            goto start_over;
+            case FN_SUB:
+              op->opcodeType = OPCODETYPE_DIRECTVALUE;
+              op->parms.dv.directValue = op->parms.parms[0]->parms.dv.directValue - op->parms.parms[1]->parms.dv.directValue;
+              op->parms.dv.valuePtr=NULL;
+            goto start_over;
+            case FN_AND:
+              op->opcodeType = OPCODETYPE_DIRECTVALUE;
+              op->parms.dv.directValue = (double) (((WDL_INT64)op->parms.parms[0]->parms.dv.directValue) & ((WDL_INT64)op->parms.parms[1]->parms.dv.directValue));
+              op->parms.dv.valuePtr=NULL;
+            goto start_over;
+            case FN_OR:
+              op->opcodeType = OPCODETYPE_DIRECTVALUE;
+              op->parms.dv.directValue = (double) (((WDL_INT64)op->parms.parms[0]->parms.dv.directValue) | ((WDL_INT64)op->parms.parms[1]->parms.dv.directValue));
+              op->parms.dv.valuePtr=NULL;
+            goto start_over;
+          }
         }
-      }
-      else if (dv0 || dv1)
-      {
-        double dvalue = op->parms.parms[!dv0]->parms.dv.directValue;
-        switch (op->fntype)
+        else if (dv0 || dv1)
         {
-          case FN_OR:
-            if (!(WDL_INT64)dvalue)
-            {
-              // replace with or0
-              static functionType fr={"or0",nseel_asm_or0, nseel_asm_or0_end, 1|NSEEL_NPARAMS_FLAG_CONST|BIF_LASTPARMONSTACK|BIF_RETURNSONSTACK, {0}, NULL};
-
-              op->opcodeType = OPCODETYPE_FUNC1;
-              op->fntype = FUNCTYPE_FUNCTIONTYPEREC;
-              op->fn = &fr;
-              if (dv0) op->parms.parms[0] = op->parms.parms[1];
-              goto start_over;
-            }
-          break;
-          case FN_SUB:
-            if (dv0) 
-            {
-              if (dvalue == 0.0)
+          double dvalue = op->parms.parms[!dv0]->parms.dv.directValue;
+          switch (op->fntype)
+          {
+            case FN_OR:
+              if (!(WDL_INT64)dvalue)
               {
+                // replace with or0
+                static functionType fr={"or0",nseel_asm_or0, nseel_asm_or0_end, 1|NSEEL_NPARAMS_FLAG_CONST|BIF_LASTPARMONSTACK|BIF_RETURNSONSTACK, {0}, NULL};
+
                 op->opcodeType = OPCODETYPE_FUNC1;
-                op->fntype = FN_UMINUS;
-                op->parms.parms[0] = op->parms.parms[1];
+                op->fntype = FUNCTYPE_FUNCTIONTYPEREC;
+                op->fn = &fr;
+                if (dv0) op->parms.parms[0] = op->parms.parms[1];
                 goto start_over;
               }
-              break;
-            }
-            // fall through, if dv1 we can remove +0.0
-
-          case FN_ADD:
-            if (dvalue == 0.0) 
-            {
-              memcpy(op,op->parms.parms[!!dv0],sizeof(*op));
-              goto start_over;
-            }
-          break;
-          case FN_AND:
-            if ((WDL_INT64)dvalue) break;
-            dvalue = 0.0; // treat x&0 as x*0, which optimizes to 0
-            
-            // fall through
-          case FN_MULTIPLY:
-            if (dvalue == 0.0) // remove multiply by 0.0 (using 0.0 direct value as replacement), unless the nonzero side did something
-            {
-              if (!retv_parm[!!dv0]) 
+            break;
+            case FN_SUB:
+              if (dv0) 
               {
-                memcpy(op,op->parms.parms[!dv0],sizeof(*op)); // set to 0 if other action wouldn't do anything
-                goto start_over;
-              }
-              else
-              {
-                // this is 0.0 * oldexpressionthatmustbeprocessed or oldexpressionthatmustbeprocessed*0.0
-                op->fntype = FN_JOIN_STATEMENTS;
-
-                if (dv0) // 0.0*oldexpression, reverse the order so that 0 is returned
+                if (dvalue == 0.0)
                 {
-                  // set to (oldexpression;0)
-                  opcodeRec *tmp = op->parms.parms[1];
-                  op->parms.parms[1] = op->parms.parms[0];
-                  op->parms.parms[0] = tmp;
+                  op->opcodeType = OPCODETYPE_FUNC1;
+                  op->fntype = FN_UMINUS;
+                  op->parms.parms[0] = op->parms.parms[1];
+                  goto start_over;
                 }
-                goto start_over;
+                break;
               }
-            }
-            else if (dvalue == 1.0) // remove multiply by 1.0 (using non-1.0 value as replacement)
-            {
-              memcpy(op,op->parms.parms[!!dv0],sizeof(*op));
-              goto start_over;
-            }
-          break;
-          case FN_DIVIDE:
-            if (dv1)
-            {
-              if (dvalue == 1.0)  // remove divide by 1.0  (using non-1.0 value as replacement)
+              // fall through, if dv1 we can remove +0.0
+
+            case FN_ADD:
+              if (dvalue == 0.0) 
               {
                 memcpy(op,op->parms.parms[!!dv0],sizeof(*op));
                 goto start_over;
               }
-              else
+            break;
+            case FN_AND:
+              if ((WDL_INT64)dvalue) break;
+              dvalue = 0.0; // treat x&0 as x*0, which optimizes to 0
+            
+              // fall through
+            case FN_MULTIPLY:
+              if (dvalue == 0.0) // remove multiply by 0.0 (using 0.0 direct value as replacement), unless the nonzero side did something
               {
-                // change to a multiply
-                if (op->parms.parms[1]->parms.dv.directValue == 0.0)
+                if (!retv_parm[!!dv0]) 
                 {
-                  op->fntype = FN_MULTIPLY;
+                  memcpy(op,op->parms.parms[!dv0],sizeof(*op)); // set to 0 if other action wouldn't do anything
                   goto start_over;
                 }
                 else
                 {
-                  double d = 1.0/op->parms.parms[1]->parms.dv.directValue;
+                  // this is 0.0 * oldexpressionthatmustbeprocessed or oldexpressionthatmustbeprocessed*0.0
+                  op->fntype = FN_JOIN_STATEMENTS;
 
-                  WDL_DenormalDoubleAccess *p = (WDL_DenormalDoubleAccess*)&d;
-                  // allow conversion to multiply if reciprocal is exact
-                  // we could also just look to see if the last few digits of the mantissa were 0, which would probably be good
-                  // enough, but if the user really wants it they should do * (1/x) instead to force precalculation of reciprocal.
-                  if (!p->w.lw && !(p->w.hw & 0xfffff)) 
+                  if (dv0) // 0.0*oldexpression, reverse the order so that 0 is returned
+                  {
+                    // set to (oldexpression;0)
+                    opcodeRec *tmp = op->parms.parms[1];
+                    op->parms.parms[1] = op->parms.parms[0];
+                    op->parms.parms[0] = tmp;
+                  }
+                  goto start_over;
+                }
+              }
+              else if (dvalue == 1.0) // remove multiply by 1.0 (using non-1.0 value as replacement)
+              {
+                memcpy(op,op->parms.parms[!!dv0],sizeof(*op));
+                goto start_over;
+              }
+            break;
+            case FN_DIVIDE:
+              if (dv1)
+              {
+                if (dvalue == 1.0)  // remove divide by 1.0  (using non-1.0 value as replacement)
+                {
+                  memcpy(op,op->parms.parms[!!dv0],sizeof(*op));
+                  goto start_over;
+                }
+                else
+                {
+                  // change to a multiply
+                  if (op->parms.parms[1]->parms.dv.directValue == 0.0)
                   {
                     op->fntype = FN_MULTIPLY;
-                    op->parms.parms[1]->parms.dv.directValue = d;
-                    op->parms.parms[1]->parms.dv.valuePtr=NULL;
                     goto start_over;
+                  }
+                  else
+                  {
+                    double d = 1.0/op->parms.parms[1]->parms.dv.directValue;
+
+                    WDL_DenormalDoubleAccess *p = (WDL_DenormalDoubleAccess*)&d;
+                    // allow conversion to multiply if reciprocal is exact
+                    // we could also just look to see if the last few digits of the mantissa were 0, which would probably be good
+                    // enough, but if the user really wants it they should do * (1/x) instead to force precalculation of reciprocal.
+                    if (!p->w.lw && !(p->w.hw & 0xfffff)) 
+                    {
+                      op->fntype = FN_MULTIPLY;
+                      op->parms.parms[1]->parms.dv.directValue = d;
+                      op->parms.parms[1]->parms.dv.valuePtr=NULL;
+                      goto start_over;
+                    }
                   }
                 }
               }
-            }
-            else if (dvalue == 0.0)
-            {
-              if (!retv_parm[!!dv0])
+              else if (dvalue == 0.0)
               {
-                // if 0/x set to always 0.
-                // this is 0.0 / (oldexpression that can be eliminated)
-                memcpy(op,op->parms.parms[!dv0],sizeof(*op)); // set to 0 if other action wouldn't do anything
+                if (!retv_parm[!!dv0])
+                {
+                  // if 0/x set to always 0.
+                  // this is 0.0 / (oldexpression that can be eliminated)
+                  memcpy(op,op->parms.parms[!dv0],sizeof(*op)); // set to 0 if other action wouldn't do anything
+                }
+                else
+                {
+                  opcodeRec *tmp;
+                  // this is 0.0 / oldexpressionthatmustbeprocessed
+                  op->fntype = FN_JOIN_STATEMENTS;
+                  tmp = op->parms.parms[1];
+                  op->parms.parms[1] = op->parms.parms[0];
+                  op->parms.parms[0] = tmp;
+                  // set to (oldexpression;0)
+                }
+                goto start_over;
               }
-              else
-              {
-                opcodeRec *tmp;
-                // this is 0.0 / oldexpressionthatmustbeprocessed
-                op->fntype = FN_JOIN_STATEMENTS;
-                tmp = op->parms.parms[1];
-                op->parms.parms[1] = op->parms.parms[0];
-                op->parms.parms[0] = tmp;
-                // set to (oldexpression;0)
-              }
-              goto start_over;
-            }
-          break;
+            break;
+          }
         }
       }
-    }
-    // FUNCTYPE_SIMPLE
-  }   
-  else if (op->fntype == FUNCTYPE_FUNCTIONTYPEREC && op->fn)
-  {
-
-    /*
-    probably worth doing reduction on:
-    _divop (constant change to multiply)
-    _and
-    _or
-    _not
-    _mod
-    _shr
-    _shl
-    _xor
-    abs
-
-    maybe:
-    min
-    max
-    _equal
-    _noteq
-    _below
-    _above
-    _beleq
-    _aboeq
-
-
-    also, optimize should (recursively or maybe iteratively?) search transitive functions (mul/div) for more constant reduction possibilities
-
-
-    */
-
-
-    functionType  *pfn = (functionType *)op->fn;
-
-    if (!(pfn->nParams&NSEEL_NPARAMS_FLAG_CONST)) retv|=1;
-
-    if (op->opcodeType==OPCODETYPE_FUNC1) // within FUNCTYPE_FUNCTIONTYPEREC
+      // FUNCTYPE_SIMPLE
+    }   
+    else if (op->fntype == FUNCTYPE_FUNCTIONTYPEREC && op->fn)
     {
-      if (op->parms.parms[0]->opcodeType == OPCODETYPE_DIRECTVALUE)
+
+      /*
+      probably worth doing reduction on:
+      _divop (constant change to multiply)
+      _and
+      _or
+      _not
+      _mod
+      _shr
+      _shl
+      _xor
+      abs
+
+      maybe:
+      min
+      max
+      _equal
+      _noteq
+      _below
+      _above
+      _beleq
+      _aboeq
+
+
+      also, optimize should (recursively or maybe iteratively?) search transitive functions (mul/div) for more constant reduction possibilities
+
+
+      */
+
+
+      functionType  *pfn = (functionType *)op->fn;
+
+      if (!(pfn->nParams&NSEEL_NPARAMS_FLAG_CONST)) retv|=1;
+
+      if (op->opcodeType==OPCODETYPE_FUNC1) // within FUNCTYPE_FUNCTIONTYPEREC
       {
-        int suc=1;
-        EEL_F v = op->parms.parms[0]->parms.dv.directValue;
-#define DOF(x) if (!strcmp(pfn->name,#x)) v = x(v); else
-        DOF(sin)
-        DOF(cos)
-        DOF(tan)
-        DOF(asin)
-        DOF(acos)
-        DOF(atan)
-        DOF(sqrt)
-        DOF(exp)
-        DOF(log)
-        DOF(log10)
-        /*else*/ suc=0;
-#undef DOF
-        if (suc)
+        if (op->parms.parms[0]->opcodeType == OPCODETYPE_DIRECTVALUE)
         {
-          op->opcodeType = OPCODETYPE_DIRECTVALUE;
-          op->parms.dv.directValue = v;
-          op->parms.dv.valuePtr=NULL;
-          goto start_over;
+          int suc=1;
+          EEL_F v = op->parms.parms[0]->parms.dv.directValue;
+  #define DOF(x) if (!strcmp(pfn->name,#x)) v = x(v); else
+          DOF(sin)
+          DOF(cos)
+          DOF(tan)
+          DOF(asin)
+          DOF(acos)
+          DOF(atan)
+          DOF(sqrt)
+          DOF(exp)
+          DOF(log)
+          DOF(log10)
+          /*else*/ suc=0;
+  #undef DOF
+          if (suc)
+          {
+            op->opcodeType = OPCODETYPE_DIRECTVALUE;
+            op->parms.dv.directValue = v;
+            op->parms.dv.valuePtr=NULL;
+            goto start_over;
+          }
+
+
         }
-
-
       }
+      else if (op->opcodeType==OPCODETYPE_FUNC2)  // within FUNCTYPE_FUNCTIONTYPEREC
+      {
+        if (op->parms.parms[0]->opcodeType == OPCODETYPE_DIRECTVALUE &&
+            op->parms.parms[1]->opcodeType == OPCODETYPE_DIRECTVALUE)
+        {
+          if (pfn->replptrs[0] == &pow || 
+              pfn->replptrs[0] == &atan2) 
+          {
+            op->opcodeType = OPCODETYPE_DIRECTVALUE;
+            op->parms.dv.directValue = pfn->replptrs[0]==pow ? 
+              pow(op->parms.parms[0]->parms.dv.directValue, op->parms.parms[1]->parms.dv.directValue) :
+              atan2(op->parms.parms[0]->parms.dv.directValue, op->parms.parms[1]->parms.dv.directValue);
+            op->parms.dv.valuePtr=NULL;
+            goto start_over;
+          }
+        }
+        else if (pfn->replptrs[0] == &pow)
+        {
+          opcodeRec *first_parm = op->parms.parms[0];
+          if (first_parm->opcodeType == op->opcodeType && first_parm->fn == op->fn && first_parm->fntype == op->fntype)
+          {            
+            // since first_parm is a pow too, we can multiply the exponents.
+
+            // set our base to be the base of the inner pow
+            op->parms.parms[0] = first_parm->parms.parms[0];
+
+            // make the old extra pow be a multiply of the exponents
+            first_parm->fntype = FN_MULTIPLY;
+            first_parm->parms.parms[0] = op->parms.parms[1];
+
+            // put that as the exponent
+            op->parms.parms[1] = first_parm;
+
+            goto start_over;
+          }
+        }
+      }
+      else if (op->opcodeType==OPCODETYPE_FUNC3)  // within FUNCTYPE_FUNCTIONTYPEREC
+      {
+        if (op->parms.parms[0]->opcodeType == OPCODETYPE_DIRECTVALUE)
+        {
+          if (!strcmp(pfn->name,"_if"))
+          {
+            int s = fabs(op->parms.parms[0]->parms.dv.directValue) >= g_closefact;
+            memcpy(op,op->parms.parms[s ? 1 : 2],sizeof(opcodeRec));
+            goto start_over;
+          }
+        }
+      }
+      // FUNCTYPE_FUNCTIONTYPEREC
     }
-    else if (op->opcodeType==OPCODETYPE_FUNC2)  // within FUNCTYPE_FUNCTIONTYPEREC
+    else
     {
-      if (op->parms.parms[0]->opcodeType == OPCODETYPE_DIRECTVALUE &&
-          op->parms.parms[1]->opcodeType == OPCODETYPE_DIRECTVALUE)
-      {
-        if (pfn->replptrs[0] == &pow || 
-            pfn->replptrs[0] == &atan2) 
-        {
-          op->opcodeType = OPCODETYPE_DIRECTVALUE;
-          op->parms.dv.directValue = pfn->replptrs[0]==pow ? 
-            pow(op->parms.parms[0]->parms.dv.directValue, op->parms.parms[1]->parms.dv.directValue) :
-            atan2(op->parms.parms[0]->parms.dv.directValue, op->parms.parms[1]->parms.dv.directValue);
-          op->parms.dv.valuePtr=NULL;
-          goto start_over;
-        }
-      }
-      else if (pfn->replptrs[0] == &pow)
-      {
-        opcodeRec *first_parm = op->parms.parms[0];
-        if (first_parm->opcodeType == op->opcodeType && first_parm->fn == op->fn && first_parm->fntype == op->fntype)
-        {            
-          // since first_parm is a pow too, we can multiply the exponents.
-
-          // set our base to be the base of the inner pow
-          op->parms.parms[0] = first_parm->parms.parms[0];
-
-          // make the old extra pow be a multiply of the exponents
-          first_parm->fntype = FN_MULTIPLY;
-          first_parm->parms.parms[0] = op->parms.parms[1];
-
-          // put that as the exponent
-          op->parms.parms[1] = first_parm;
-
-          goto start_over;
-        }
-      }
+      // unknown or eel func, assume non-const
+      retv |= 1;
     }
-    else if (op->opcodeType==OPCODETYPE_FUNC3)  // within FUNCTYPE_FUNCTIONTYPEREC
-    {
-      if (op->parms.parms[0]->opcodeType == OPCODETYPE_DIRECTVALUE)
-      {
-        if (!strcmp(pfn->name,"_if"))
-        {
-          int s = fabs(op->parms.parms[0]->parms.dv.directValue) >= g_closefact;
-          memcpy(op,op->parms.parms[s ? 1 : 2],sizeof(opcodeRec));
-          goto start_over;
-        }
-      }
-    }
-    // FUNCTYPE_FUNCTIONTYPEREC
-  }
-  else
-  {
-    // unknown or eel func, assume non-const
-    retv |= 1;
   }
 
   // if we need results, or our function has effects itself, then finish
@@ -1890,7 +1923,7 @@ static int compileNativeFunctionCall(compileContext *ctx, opcodeRec *op, unsigne
     {
       unsigned char *p=bufOut + parm_size;
       memcpy(p, func, func_size);
-      if (preProc) preProc(p,func_size,ctx);
+      if (preProc) p=preProc(p,func_size,ctx);
       if (repl)
       {
         if (repl[0]) p=EEL_GLUE_set_immediate(p,repl[0]);
@@ -2224,8 +2257,8 @@ static int compileOpcodesInternal(compileContext *ctx, opcodeRec *op, unsigned c
       {
         int subsz;
         int fUse=0;
-        unsigned char *skipptr1, *skipclampptr, *loopdest;
-        if (bufOut_len < parm_size + sizeof(GLUE_LOOP_LOADCNT) + sizeof(GLUE_LOOP_CLAMPCNT) + sizeof(GLUE_LOOP_CLAMPCNT2) + sizeof(GLUE_LOOP_BEGIN)) RET_MINUS1_FAIL("loop size fail")
+        unsigned char *skipptr1,*loopdest;
+        if (bufOut_len < parm_size + sizeof(GLUE_LOOP_LOADCNT) + sizeof(GLUE_LOOP_CLAMPCNT) + sizeof(GLUE_LOOP_BEGIN)) RET_MINUS1_FAIL("loop size fail")
 
         // store, convert to int, compare against 1, if less than, skip to end
         if (bufOut) memcpy(bufOut+parm_size,GLUE_LOOP_LOADCNT,sizeof(GLUE_LOOP_LOADCNT));
@@ -2235,11 +2268,6 @@ static int compileOpcodesInternal(compileContext *ctx, opcodeRec *op, unsigned c
         // compare aginst max loop length, jump to loop start if not above it
         if (bufOut) memcpy(bufOut+parm_size,GLUE_LOOP_CLAMPCNT,sizeof(GLUE_LOOP_CLAMPCNT));
         parm_size += sizeof(GLUE_LOOP_CLAMPCNT);
-        skipclampptr = bufOut+parm_size - sizeof(GLUE_JMP_TYPE);
-
-        // clamp to max loop length
-        if (bufOut) memcpy(bufOut+parm_size,GLUE_LOOP_CLAMPCNT2,sizeof(GLUE_LOOP_CLAMPCNT2));
-        parm_size += sizeof(GLUE_LOOP_CLAMPCNT2);
 
         // loop code:
         loopdest = bufOut + parm_size;
@@ -2260,7 +2288,6 @@ static int compileOpcodesInternal(compileContext *ctx, opcodeRec *op, unsigned c
         if (bufOut) *(GLUE_JMP_TYPE *)(bufOut + parm_size - sizeof(GLUE_JMP_TYPE)) = (loopdest - (bufOut+parm_size + GLUE_JMP_OFFSET));
 
         if (bufOut) *(GLUE_JMP_TYPE *)skipptr1 =  (bufOut+parm_size - (skipptr1 + sizeof(GLUE_JMP_TYPE) + GLUE_JMP_OFFSET));
-        if (bufOut) *(GLUE_JMP_TYPE *)skipclampptr =  (loopdest - (skipclampptr + sizeof(GLUE_JMP_TYPE) + GLUE_JMP_OFFSET));
 
         return rv_offset + parm_size;
 
@@ -3998,18 +4025,21 @@ void NSEEL_VM_SetCustomFuncThis(NSEEL_VMCTX ctx, void *thisptr)
 
 
 
-void NSEEL_PProc_RAM(void *data, int data_size, compileContext *ctx)
+void *NSEEL_PProc_RAM(void *data, int data_size, compileContext *ctx)
 {
-  if (data_size>0) EEL_GLUE_set_immediate(data, ctx->ram_blocks); 
+  if (data_size>0) data=EEL_GLUE_set_immediate(data, ctx->ram_blocks); 
+  return data;
 }
-void NSEEL_PProc_RAM_freeblocks(void *data, int data_size, compileContext *ctx)
+void *NSEEL_PProc_RAM_freeblocks(void *data, int data_size, compileContext *ctx)
 {
-  if (data_size>0) EEL_GLUE_set_immediate(data, &ctx->ram_needfree); 
+  if (data_size>0) data=EEL_GLUE_set_immediate(data, &ctx->ram_needfree); 
+  return data;
 }
 
-void NSEEL_PProc_THIS(void *data, int data_size, compileContext *ctx)
+void *NSEEL_PProc_THIS(void *data, int data_size, compileContext *ctx)
 {
-  if (data_size>0) EEL_GLUE_set_immediate(data, ctx->caller_this);
+  if (data_size>0) data=EEL_GLUE_set_immediate(data, ctx->caller_this);
+  return data;
 }
 
 void NSEEL_VM_remove_unused_vars(NSEEL_VMCTX _ctx)

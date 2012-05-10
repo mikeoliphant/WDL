@@ -83,7 +83,10 @@ int NSEEL_init(); // returns 0 on success. clears any added functions as well
 
 #define NSEEL_addfunction(name,nparms,code,len) NSEEL_addfunctionex((name),(nparms),(code),(len),0,0)
 #define NSEEL_addfunctionex(name,nparms,code,len,pproc,fptr) NSEEL_addfunctionex2((name),(nparms),(code),(len),(pproc),(fptr),0)
-void NSEEL_addfunctionex2(const char *name, int nparms, char *code_startaddr, int code_len, void *pproc, void *fptr, void *fptr2);
+
+typedef void *(*NSEEL_PPPROC)(void *data, int data_size, struct _compileContext *userfunc_data);
+
+void NSEEL_addfunctionex2(const char *name, int nparms, char *code_startaddr, int code_len, NSEEL_PPPROC pproc, void *fptr, void *fptr2);
 
 void NSEEL_quit();
 
@@ -171,6 +174,11 @@ extern int NSEEL_RAM_memused_errors;
 
 #define NSEEL_STACK_SIZE 4096 // about 64k overhead if the stack functions are used in a given code handle
 
+//#define EEL_TARGET_PORTABLE
+
+#ifdef EEL_TARGET_PORTABLE
+#define EEL_BC_TYPE int
+#endif
 
 #ifdef __cplusplus
 }
