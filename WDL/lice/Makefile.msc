@@ -18,53 +18,41 @@
 #    misrepresented as being the original software.
 # 3. This notice may not be removed or altered from any source distribution.
 
-
 # Usage:
 #   Setenv [/Debug | /Release] [/x86 | /x64] [/xp | /vista | /2003 | /2008 | /win7]
-#   NMAKE /f lice_winsdk7.mak [NOSSE2=1] [all | lib | lice | zlib | libpng | jpeglib | giflib | tinyxml]
-#
-# /Debug    Debug build
-# /Release  Release build
-# /x86      32-bit x86 code
-# /x64      64-bit x64 code
-# /xp       Windows XP SP2 (recommended)
-# /vista    Windows Vista
-# /2003     Windows Server 2003
-# /2008     Windows Server 2008, Windows Vista SP1
-# /win7     Windows 7
-#
-# NOSSE2=1  disables the use of SSE2 instructions
-# all       builds the .lib file, keeping all intermediate files
-# lib       builds the .lib file, and then deletes all intermediate files
-# lice      compiles only LICE
-# zlib      compiles only zlib
-# libpng    compiles only libpng
-# jpeglib   compiles only JPEG library
-# giflib    compiles only giflib
-# tinyxml   compiles only TinyXml
+#   nmake /f Makefile.msc [NOSSE2=1] [all | lib | lice | zlib | libpng | jpeglib | giflib | tinyxml]
 #
 # Note: By default this makefile does a minimalist build of LICE (partial),
 # zlib, and libpng only.
 
+PROJECT = LICE
+OUTFILE = lice.lib
 
-!IFNDEF CONFIGURATION
-!	IFDEF NODEBUG
+CPPFLAGS = $(CPPFLAGS) /EHsc /GS- /GR- /D "_LIB" /D "_MBCS" /Oi /Ot /fp:fast /GF /MT /c /Fo"$(OUTDIR)/" /Fd"$(OUTDIR)/" /W3 /WX /wd4996 /nologo
+
+!IF !DEFINED(CONFIGURATION) && DEFINED(NODEBUG)
 CONFIGURATION = Release
-!	ELSE
+!ELSE IF !DEFINED(CONFIGURATION)
 CONFIGURATION = Debug
-!	ENDIF
 !ENDIF
 
-!IFNDEF TARGET_CPU
-!	IF "$(CPU)" == "i386"
-TARGET_CPU = x86
-!	ELSE IF "$(CPU)" == "AMD64"
-TARGET_CPU = x64
+!IF "$(CONFIGURATION)" == "Release"
+
+CPPFLAGS = $(CPPFLAGS) /D "NDEBUG" /O2 /Ob2
+
+!ELSE IF "$(CONFIGURATION)" == "Debug"
+
+CPPFLAGS = $(CPPFLAGS) /D "_DEBUG" /RTCsu
+!	IF "$(PLATFORM)" == "X64"
+CPPFLAGS = $(CPPFLAGS) /Zi
+!	ELSE
+CPPFLAGS = $(CPPFLAGS) /ZI
 !	ENDIF
+
 !ENDIF
 
+!IF "$(TARGET_CPU)" == "x86" || "$(CPU)" == "i386"
 
-!IF "$(TARGET_CPU)" == "x86"
 !	IFNDEF NOSSE2
 PLATFORM = Win32
 CPPFLAGS = $(CPPFLAGS) /arch:SSE2
@@ -72,206 +60,174 @@ CPPFLAGS = $(CPPFLAGS) /arch:SSE2
 PLATFORM = Win32_noSSE2
 !	ENDIF
 CPPFLAGS = $(CPPFLAGS) /D "WIN32" /D "_CRT_SECURE_NO_WARNINGS"
-!ELSE IF "$(TARGET_CPU)" == "x64"
+
+!ELSE IF "$(TARGET_CPU)" == "x64" || "$(CPU)" == "AMD64"
+
 PLATFORM = X64
-!	IFDEF NOSSE2
-!		MESSAGE Warning: NOSSE2 has no effect on x64 code
-!		MESSAGE
-!	ENDIF
 CPPFLAGS = $(CPPFLAGS) /favor:blend /wd4267
-!ELSE
-!	ERROR Unsupported target CPU "$(TARGET_CPU)"
+
 !ENDIF
 
 OUTDIR = $(PLATFORM)/$(CONFIGURATION)
-INTDIR = $(OUTDIR)
 
-!MESSAGE LICE - $(CONFIGURATION)|$(PLATFORM)
+!MESSAGE $(PROJECT) - $(CONFIGURATION)|$(PLATFORM)
 !MESSAGE
 
-
-CPPFLAGS = $(CPPFLAGS) /EHsc /GS- /GR- /D "_LIB" /D "_MBCS" /Oi /Ot /fp:fast /GF /MT /c /Fo"$(INTDIR)/" /Fd"$(INTDIR)/" /W3 /WX /wd4996 /nologo
-
-!IF "$(CONFIGURATION)" == "Debug"
-CPPFLAGS = $(CPPFLAGS) /D "_DEBUG" /RTCsu
-!	IF "$(PLATFORM)" == "X64"
-CPPFLAGS = $(CPPFLAGS) /Zi
-!	ELSE
-CPPFLAGS = $(CPPFLAGS) /ZI
-!	ENDIF
-!ELSE
-CPPFLAGS = $(CPPFLAGS) /D "NDEBUG" /O2 /Ob2
-!ENDIF
-
-!MESSAGE $(CPP) $(CPPFLAGS)
-!MESSAGE
-
-
-all : "$(OUTDIR)/lice.lib"
+all : "$(OUTDIR)/$(OUTFILE)"
 
 "$(OUTDIR)" :
-	@if not exist "$(OUTDIR)/" mkdir "$(OUTDIR)"
-
-!IF "$(INTDIR)" != "$(OUTDIR)"
-"$(INTDIR)" :
-	@if not exist "$(INTDIR)/" mkdir "$(INTDIR)"
+!IF !EXIST("$(OUTDIR)/")
+	mkdir $@
 !ENDIF
 
-
 ZLIB = \
-"$(INTDIR)/adler32.obj" \
-#"$(INTDIR)/compress.obj" \
-"$(INTDIR)/crc32.obj" \
-#"$(INTDIR)/deflate.obj" \
-#"$(INTDIR)/gzlib.obj" \
-#"$(INTDIR)/gzread.obj" \
-#"$(INTDIR)/gzwrite.obj" \
-#"$(INTDIR)/gzclose.obj" \
-"$(INTDIR)/infback.obj" \
-"$(INTDIR)/inffast.obj" \
-"$(INTDIR)/inflate.obj" \
-"$(INTDIR)/inftrees.obj" \
-"$(INTDIR)/trees.obj" \
-"$(INTDIR)/uncompr.obj" \
-"$(INTDIR)/zutil.obj"
+"$(OUTDIR)/adler32.obj" \
+#"$(OUTDIR)/compress.obj" \
+"$(OUTDIR)/crc32.obj" \
+#"$(OUTDIR)/deflate.obj" \
+#"$(OUTDIR)/gzlib.obj" \
+#"$(OUTDIR)/gzread.obj" \
+#"$(OUTDIR)/gzwrite.obj" \
+#"$(OUTDIR)/gzclose.obj" \
+"$(OUTDIR)/infback.obj" \
+"$(OUTDIR)/inffast.obj" \
+"$(OUTDIR)/inflate.obj" \
+"$(OUTDIR)/inftrees.obj" \
+"$(OUTDIR)/trees.obj" \
+"$(OUTDIR)/uncompr.obj" \
+"$(OUTDIR)/zutil.obj"
 
-zlib : $(ZLIB)
+zlib : "$(OUTDIR)" $(ZLIB)
 
-{../zlib}.c{$(INTDIR)}.obj :
-	@$(CPP) $(CPPFLAGS) /D NO_GZCOMPRESS /D Z_SOLO "$<"
-
+{../zlib}.c{$(OUTDIR)}.obj :
+	$(CPP) $(CPPFLAGS) /D NO_GZCOMPRESS /D Z_SOLO "$<"
 
 LIBPNG = \
-"$(INTDIR)/png.obj" \
-"$(INTDIR)/pngerror.obj" \
-"$(INTDIR)/pngget.obj" \
-"$(INTDIR)/pngmem.obj" \
-#"$(INTDIR)/pngpread.obj" \
-"$(INTDIR)/pngread.obj" \
-"$(INTDIR)/pngrio.obj" \
-"$(INTDIR)/pngrtran.obj" \
-"$(INTDIR)/pngrutil.obj" \
-"$(INTDIR)/pngset.obj" \
-"$(INTDIR)/pngtrans.obj" \
-#"$(INTDIR)/pngwio.obj" \
-#"$(INTDIR)/pngwrite.obj" \
-#"$(INTDIR)/pngwtran.obj" \
-#"$(INTDIR)/pngwutil.obj"
+"$(OUTDIR)/png.obj" \
+"$(OUTDIR)/pngerror.obj" \
+"$(OUTDIR)/pngget.obj" \
+"$(OUTDIR)/pngmem.obj" \
+#"$(OUTDIR)/pngpread.obj" \
+"$(OUTDIR)/pngread.obj" \
+"$(OUTDIR)/pngrio.obj" \
+"$(OUTDIR)/pngrtran.obj" \
+"$(OUTDIR)/pngrutil.obj" \
+"$(OUTDIR)/pngset.obj" \
+"$(OUTDIR)/pngtrans.obj" \
+#"$(OUTDIR)/pngwio.obj" \
+#"$(OUTDIR)/pngwrite.obj" \
+#"$(OUTDIR)/pngwtran.obj" \
+#"$(OUTDIR)/pngwutil.obj"
 
-libpng : $(LIBPNG)
+libpng : "$(OUTDIR)" $(LIBPNG)
 
-{../libpng}.c{$(INTDIR)}.obj :
-	@$(CPP) $(CPPFLAGS) /I "../zlib" "$<"
-
+{../libpng}.c{$(OUTDIR)}.obj :
+	$(CPP) $(CPPFLAGS) /I "../zlib" "$<"
 
 JPEGLIB = \
-"$(INTDIR)/jcapimin.obj" \
-"$(INTDIR)/jcapistd.obj" \
-"$(INTDIR)/jccoefct.obj" \
-"$(INTDIR)/jccolor.obj" \
-"$(INTDIR)/jcdctmgr.obj" \
-"$(INTDIR)/jchuff.obj" \
-"$(INTDIR)/jcinit.obj" \
-"$(INTDIR)/jcmainct.obj" \
-"$(INTDIR)/jcmarker.obj" \
-"$(INTDIR)/jcmaster.obj" \
-"$(INTDIR)/jcomapi.obj" \
-"$(INTDIR)/jcparam.obj" \
-"$(INTDIR)/jcphuff.obj" \
-"$(INTDIR)/jcprepct.obj" \
-"$(INTDIR)/jcsample.obj" \
-"$(INTDIR)/jctrans.obj" \
-"$(INTDIR)/jdapimin.obj" \
-"$(INTDIR)/jdapistd.obj" \
-"$(INTDIR)/jdatadst.obj" \
-"$(INTDIR)/jdatasrc.obj" \
-"$(INTDIR)/jdcoefct.obj" \
-"$(INTDIR)/jdcolor.obj" \
-"$(INTDIR)/jddctmgr.obj" \
-"$(INTDIR)/jdhuff.obj" \
-"$(INTDIR)/jdinput.obj" \
-"$(INTDIR)/jdmainct.obj" \
-"$(INTDIR)/jdmarker.obj" \
-"$(INTDIR)/jdmaster.obj" \
-"$(INTDIR)/jdmerge.obj" \
-"$(INTDIR)/jdphuff.obj" \
-"$(INTDIR)/jdpostct.obj" \
-"$(INTDIR)/jdsample.obj" \
-"$(INTDIR)/jdtrans.obj" \
-"$(INTDIR)/jerror.obj" \
-"$(INTDIR)/jfdctflt.obj" \
-"$(INTDIR)/jfdctfst.obj" \
-"$(INTDIR)/jfdctint.obj" \
-"$(INTDIR)/jidctflt.obj" \
-"$(INTDIR)/jidctfst.obj" \
-"$(INTDIR)/jidctint.obj" \
-"$(INTDIR)/jidctred.obj" \
-"$(INTDIR)/jmemmgr.obj" \
-"$(INTDIR)/jmemnobs.obj" \
-"$(INTDIR)/jquant1.obj" \
-"$(INTDIR)/jquant2.obj" \
-"$(INTDIR)/jutils.obj"
+"$(OUTDIR)/jcapimin.obj" \
+"$(OUTDIR)/jcapistd.obj" \
+"$(OUTDIR)/jccoefct.obj" \
+"$(OUTDIR)/jccolor.obj" \
+"$(OUTDIR)/jcdctmgr.obj" \
+"$(OUTDIR)/jchuff.obj" \
+"$(OUTDIR)/jcinit.obj" \
+"$(OUTDIR)/jcmainct.obj" \
+"$(OUTDIR)/jcmarker.obj" \
+"$(OUTDIR)/jcmaster.obj" \
+"$(OUTDIR)/jcomapi.obj" \
+"$(OUTDIR)/jcparam.obj" \
+"$(OUTDIR)/jcphuff.obj" \
+"$(OUTDIR)/jcprepct.obj" \
+"$(OUTDIR)/jcsample.obj" \
+"$(OUTDIR)/jctrans.obj" \
+"$(OUTDIR)/jdapimin.obj" \
+"$(OUTDIR)/jdapistd.obj" \
+"$(OUTDIR)/jdatadst.obj" \
+"$(OUTDIR)/jdatasrc.obj" \
+"$(OUTDIR)/jdcoefct.obj" \
+"$(OUTDIR)/jdcolor.obj" \
+"$(OUTDIR)/jddctmgr.obj" \
+"$(OUTDIR)/jdhuff.obj" \
+"$(OUTDIR)/jdinput.obj" \
+"$(OUTDIR)/jdmainct.obj" \
+"$(OUTDIR)/jdmarker.obj" \
+"$(OUTDIR)/jdmaster.obj" \
+"$(OUTDIR)/jdmerge.obj" \
+"$(OUTDIR)/jdphuff.obj" \
+"$(OUTDIR)/jdpostct.obj" \
+"$(OUTDIR)/jdsample.obj" \
+"$(OUTDIR)/jdtrans.obj" \
+"$(OUTDIR)/jerror.obj" \
+"$(OUTDIR)/jfdctflt.obj" \
+"$(OUTDIR)/jfdctfst.obj" \
+"$(OUTDIR)/jfdctint.obj" \
+"$(OUTDIR)/jidctflt.obj" \
+"$(OUTDIR)/jidctfst.obj" \
+"$(OUTDIR)/jidctint.obj" \
+"$(OUTDIR)/jidctred.obj" \
+"$(OUTDIR)/jmemmgr.obj" \
+"$(OUTDIR)/jmemnobs.obj" \
+"$(OUTDIR)/jquant1.obj" \
+"$(OUTDIR)/jquant2.obj" \
+"$(OUTDIR)/jutils.obj"
 
-jpeglib : $(JPEGLIB)
+jpeglib : "$(OUTDIR)" $(JPEGLIB)
 
-{../jpeglib}.c{$(INTDIR)}.obj :
-	@$(CPP) $(CPPFLAGS) "$<"
-
+{../jpeglib}.c{$(OUTDIR)}.obj :
+	$(CPP) $(CPPFLAGS) "$<"
 
 GIFLIB = \
-"$(INTDIR)/dgif_lib.obj" \
-"$(INTDIR)/egif_lib.obj" \
-"$(INTDIR)/gif_hash.obj" \
-"$(INTDIR)/gifalloc.obj"
+"$(OUTDIR)/dgif_lib.obj" \
+"$(OUTDIR)/egif_lib.obj" \
+"$(OUTDIR)/gif_hash.obj" \
+"$(OUTDIR)/gifalloc.obj"
 
-giflib : $(GIFLIB)
+giflib : "$(OUTDIR)" $(GIFLIB)
 
-{../giflib}.c{$(INTDIR)}.obj :
-	@$(CPP) $(CPPFLAGS) /I "../giflib" /D "HAVE_CONFIG_H" "$<"
-
+{../giflib}.c{$(OUTDIR)}.obj :
+	$(CPP) $(CPPFLAGS) /I "../giflib" /D "HAVE_CONFIG_H" "$<"
 
 TINYXML = \
-"$(INTDIR)/svgtiny_colors.obj" \
-"$(INTDIR)/tinystr.obj" \
-"$(INTDIR)/tinyxml.obj" \
-"$(INTDIR)/tinyxmlerror.obj" \
-"$(INTDIR)/tinyxmlparser.obj"
+"$(OUTDIR)/svgtiny_colors.obj" \
+"$(OUTDIR)/tinystr.obj" \
+"$(OUTDIR)/tinyxml.obj" \
+"$(OUTDIR)/tinyxmlerror.obj" \
+"$(OUTDIR)/tinyxmlparser.obj"
 
-tinyxml : $(TINYXML)
+tinyxml : "$(OUTDIR)" $(TINYXML)
 
-"$(INTDIR)/svgtiny_colors.obj" : ../tinyxml/svgtiny_colors.c
-	@$(CPP) $(CPPFLAGS) "$?"
+"$(OUTDIR)/svgtiny_colors.obj" : ../tinyxml/svgtiny_colors.c
+	$(CPP) $(CPPFLAGS) "$?"
 
-{../tinyxml}.cpp{$(INTDIR)}.obj :
-	@$(CPP) $(CPPFLAGS) "$<"
-
+{../tinyxml}.cpp{$(OUTDIR)}.obj :
+	$(CPP) $(CPPFLAGS) "$<"
 
 LICE = \
-"$(INTDIR)/lice.obj" \
-"$(INTDIR)/lice_arc.obj" \
-#"$(INTDIR)/lice_bmp.obj" \
-#"$(INTDIR)/lice_colorspace.obj" \
-#"$(INTDIR)/lice_gif.obj" \
-#"$(INTDIR)/lice_gl_ctx.obj" \
-#"$(INTDIR)/lice_glbitmap.obj" \
-#"$(INTDIR)/lice_ico.obj" \
-#"$(INTDIR)/lice_jpg.obj" \
-#"$(INTDIR)/lice_jpg_write.obj" \
-"$(INTDIR)/lice_line.obj" \
-#"$(INTDIR)/lice_palette.obj" \
-#"$(INTDIR)/lice_pcx.obj" \
-"$(INTDIR)/lice_png.obj" \
-#"$(INTDIR)/lice_png_write.obj" \
-#"$(INTDIR)/lice_svg.obj" \
-#"$(INTDIR)/lice_texgen.obj" \
-#"$(INTDIR)/lice_text.obj" \
-"$(INTDIR)/lice_textnew.obj"
+"$(OUTDIR)/lice.obj" \
+"$(OUTDIR)/lice_arc.obj" \
+#"$(OUTDIR)/lice_bmp.obj" \
+#"$(OUTDIR)/lice_colorspace.obj" \
+#"$(OUTDIR)/lice_gif.obj" \
+#"$(OUTDIR)/lice_gl_ctx.obj" \
+#"$(OUTDIR)/lice_glbitmap.obj" \
+#"$(OUTDIR)/lice_ico.obj" \
+#"$(OUTDIR)/lice_jpg.obj" \
+#"$(OUTDIR)/lice_jpg_write.obj" \
+"$(OUTDIR)/lice_line.obj" \
+#"$(OUTDIR)/lice_palette.obj" \
+#"$(OUTDIR)/lice_pcx.obj" \
+"$(OUTDIR)/lice_png.obj" \
+#"$(OUTDIR)/lice_png_write.obj" \
+#"$(OUTDIR)/lice_svg.obj" \
+#"$(OUTDIR)/lice_texgen.obj" \
+#"$(OUTDIR)/lice_text.obj" \
+"$(OUTDIR)/lice_textnew.obj"
 
-lice : $(LICE)
+lice : "$(OUTDIR)" $(LICE)
 
-.cpp{$(INTDIR)}.obj :
-	@$(CPP) $(CPPFLAGS) /wd4244 "$<"
-
+.cpp{$(OUTDIR)}.obj :
+	$(CPP) $(CPPFLAGS) /wd4244 $<
 
 LIB = \
 $(ZLIB) \
@@ -281,18 +237,16 @@ $(LIBPNG) \
 #$(TINYXML) \
 $(LICE)
 
-LIB_FLAGS = /out:"$(OUTDIR)/lice.lib" /nologo
+"$(OUTDIR)/$(OUTFILE)" : "$(OUTDIR)" $(LIB)
+	lib /out:"$(OUTDIR)/$(OUTFILE)" /nologo $(LIB)
 
-"$(OUTDIR)/lice.lib" : "$(OUTDIR)" "$(INTDIR)" $(LIB)
-	@echo.
-	@echo lib $(LIB_FLAGS)
-	@lib $(LIB_FLAGS) $(LIB)
+lib : "$(OUTDIR)/$(OUTFILE)"
+	del "$(OUTDIR:/=\)\*.obj"
+!IF "$(CONFIGURATION)" == "Debug"
+	del "$(OUTDIR:/=\)\vc*.*"
+!ENDIF
 
-lib : "$(OUTDIR)/lice.lib" clear
-
-clear :
-	@if exist "$(INTDIR)/*.obj" erase "$(INTDIR:/=\)\*.obj"
-	@if exist "$(INTDIR)/vc*.*" erase "$(INTDIR:/=\)\vc*.*"
-
-clean : clear
-	@if exist "$(OUTDIR)/lice.lib" erase "$(OUTDIR:/=\)\lice.lib"
+clean :
+!IF EXIST("$(OUTDIR)/")
+	rmdir /s /q "$(OUTDIR:/=\)"
+!ENDIF
