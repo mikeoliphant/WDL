@@ -28,7 +28,7 @@
 PROJECT = LICE
 OUTFILE = lice.lib
 
-CPPFLAGS = $(CPPFLAGS) /EHsc /GS- /GR- /D "_LIB" /D "_MBCS" /Oi /Ot /fp:fast /GF /MT /c /Fo"$(OUTDIR)/" /Fd"$(OUTDIR)/" /W3 /WX /wd4996 /nologo
+CPPFLAGS = $(CPPFLAGS) /EHsc /GR- /D "WIN32" /D "_LIB" /D "_MBCS" /fp:fast /MT /c /Fo"$(OUTDIR)/" /Fd"$(OUTDIR)/" /W3 /WX /D "_CRT_SECURE_NO_WARNINGS" /wd4996 /nologo
 
 !IF !DEFINED(CONFIGURATION) && DEFINED(NODEBUG)
 CONFIGURATION = Release
@@ -38,7 +38,7 @@ CONFIGURATION = Debug
 
 !IF "$(CONFIGURATION)" == "Release"
 
-CPPFLAGS = $(CPPFLAGS) /D "NDEBUG" /O2 /Ob2
+CPPFLAGS = $(CPPFLAGS) /D "NDEBUG" /O2 /GS-
 
 !ELSE IF "$(CONFIGURATION)" == "Debug"
 
@@ -59,12 +59,11 @@ CPPFLAGS = $(CPPFLAGS) /arch:SSE2
 !	ELSE
 PLATFORM = Win32_noSSE2
 !	ENDIF
-CPPFLAGS = $(CPPFLAGS) /D "WIN32" /D "_CRT_SECURE_NO_WARNINGS"
 
 !ELSE IF "$(TARGET_CPU)" == "x64" || "$(CPU)" == "AMD64"
 
 PLATFORM = X64
-CPPFLAGS = $(CPPFLAGS) /favor:blend /wd4267
+CPPFLAGS = $(CPPFLAGS) /favor:blend
 
 !ENDIF
 
@@ -175,7 +174,7 @@ JPEGLIB = \
 jpeglib : "$(OUTDIR)" $(JPEGLIB)
 
 {../jpeglib}.c{$(OUTDIR)}.obj :
-	$(CPP) $(CPPFLAGS) "$<"
+	$(CPP) $(CPPFLAGS) /wd4267 "$<"
 
 GIFLIB = \
 "$(OUTDIR)/dgif_lib.obj" \
@@ -186,7 +185,7 @@ GIFLIB = \
 giflib : "$(OUTDIR)" $(GIFLIB)
 
 {../giflib}.c{$(OUTDIR)}.obj :
-	$(CPP) $(CPPFLAGS) /I "../giflib" /D "HAVE_CONFIG_H" "$<"
+	$(CPP) $(CPPFLAGS) /I "../giflib" /D "HAVE_CONFIG_H" /wd4267 "$<"
 
 TINYXML = \
 "$(OUTDIR)/svgtiny_colors.obj" \
