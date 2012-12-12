@@ -802,15 +802,21 @@ int DrawText(HDC ctx, const char *buf, int buflen, RECT *r, int align)
   HDC__ *ct=(HDC__ *)ctx;
   if (!HDC_VALID(ct)) return 0;
   
+  bool has_ml=false;
   char tmp[4096];
   const char *p=buf;
   char *op=tmp;
   while (*p && (op-tmp)<sizeof(tmp)-1 && (buflen<0 || (p-buf)<buflen))
   {
     if (*p == '&' && !(align&DT_NOPREFIX)) p++; 
-    else if (*p == '\r')  p++; 
+
+    if (*p == '\r')  p++; 
     else if (*p == '\n' && (align&DT_SINGLELINE)) { *op++ = ' '; p++; }
-    else *op++=*p++;
+    else 
+    {
+      if (*p == '\n') has_ml=true;
+      *op++=*p++;
+    }
   }
   *op=0;
   
@@ -880,7 +886,8 @@ int DrawText(HDC ctx, const char *buf, int buflen, RECT *r, int align)
     parinfo = [[NSMutableParagraphStyle alloc] init];
     [parinfo setAlignment:amode];
     [parinfo setLineBreakMode:lbmode];
-    [dict setObject:[parinfo autorelease] forKey:NSParagraphStyleAttributeName];
+    [dict setObject:parinfo forKey:NSParagraphStyleAttributeName];
+    [parinfo release];
   }
 
   
@@ -901,12 +908,7 @@ int DrawText(HDC ctx, const char *buf, int buflen, RECT *r, int align)
     [curgc setShouldAntialias:(quality == ANTIALIASED_QUALITY ? YES : NO)];
   }
   
-  NSStringDrawingOptions opt = NSStringDrawingUsesFontLeading;
-  NSSize sz={0,0};//[as size];
-  NSRect rsz=[str boundingRectWithSize:sz options:opt attributes:dict];
-        
-  sz=rsz.size;
-  
+  NSSize sz=[str sizeWithAttributes:dict];
   
   int ret=ceil(sz.height);
   if (align & DT_CALCRECT)
@@ -955,8 +957,14 @@ int DrawText(HDC ctx, const char *buf, int buflen, RECT *r, int align)
         drawr.size.height=sz.height;
       }
     }
-    [str drawWithRect:drawr options:opt attributes:dict];
-    
+    if (has_ml)
+    {
+      [str drawInRect:drawr withAttributes:dict];
+    }
+    else
+    {
+      [str drawWithRect:drawr options:NSStringDrawingUsesFontLeading attributes:dict];
+    }
   }
 
   if (quality) [curgc setShouldAntialias:oldaa];
