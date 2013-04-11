@@ -36,6 +36,15 @@
 
 #include "denormal.h"
 
+
+// #define WDL_REVERB_MONO for 1 instead of 2 channels
+#ifdef WDL_REVERB_MONO
+#define WDL_REVERB_NCH 1
+#else
+#define WDL_REVERB_NCH 2
+#endif
+
+
 class WDL_ReverbAllpass
 {
 public:
@@ -122,7 +131,9 @@ private:
 } WDL_FIXALIGN;
 
   // these represent lengths in samples at 44.1khz but are scaled accordingly
+#ifndef WDL_REVERB_MONO
 const int wdl_verb__stereospread=23;
+#endif
 const short wdl_verb__combtunings[]={1116,1188,1277,1356,1422,1491,1557,1617,1685,1748};
 const short wdl_verb__allpasstunings[]={556,441,341,225,180,153};
 
@@ -150,44 +161,79 @@ public:
     }
   }
 
+  #ifdef WDL_REVERB_MONO
+  void ProcessSampleBlock(double *spl0, double *outp0, int ns)
+  #else
   void ProcessSampleBlock(double *spl0, double *spl1, double *outp0, double *outp1, int ns)
+  #endif
   {
     int x;
     memset(outp0,0,ns*sizeof(double));
+    #ifndef WDL_REVERB_MONO
     memset(outp1,0,ns*sizeof(double));
+    #endif
 
     for (x = 0; x < sizeof(wdl_verb__combtunings)/sizeof(wdl_verb__combtunings[0]); x += 2)
     {
       int i=ns;
-      double *p0=outp0,*p1=outp1,*i0=spl0,*i1=spl1;
+      double *p0=outp0,*i0=spl0
+      #ifndef WDL_REVERB_MONO
+      ,*p1=outp1,*i1=spl1
+      #endif
+      ;
       while (i--)
       {        
-        double a=*i0++,b=*i1++;
+        double a=*i0++
+        #ifndef WDL_REVERB_MONO
+        ,b=*i1++
+        #endif
+        ;
         *p0+=m_combs[x][0].process(a); 
+        #ifndef WDL_REVERB_MONO
         *p1+=m_combs[x][1].process(b);
+        #endif
         *p0+++=m_combs[x+1][0].process(a); 
+        #ifndef WDL_REVERB_MONO
         *p1+++=m_combs[x+1][1].process(b);
+        #endif
       }
     }
     for (x = 0; x < sizeof(wdl_verb__allpasstunings)/sizeof(wdl_verb__allpasstunings[0])-2; x += 2)
     {
       int i=ns;
-      double *p0=outp0,*p1=outp1;
+      double *p0=outp0
+      #ifndef WDL_REVERB_MONO
+      ,*p1=outp1
+      #endif
+      ;
       while (i--)
       {        
         double tmp=m_allpasses[x][0].process(*p0);
+        #ifndef WDL_REVERB_MONO
         double tmp2=m_allpasses[x][1].process(*p1);
+        #endif
         *p0++=m_allpasses[x+1][0].process(tmp);
+        #ifndef WDL_REVERB_MONO
         *p1++=m_allpasses[x+1][1].process(tmp2);
+        #endif
       }
     }
     int i=ns;
-    double *p0=outp0,*p1=outp1;
+    double *p0=outp0
+    #ifndef WDL_REVERB_MONO
+    ,*p1=outp1
+    #endif
+          ;
     while (i--)
     {        
       double a=m_allpasses[x+1][0].process(m_allpasses[x][0].process(*p0))*0.015;
+      #ifndef WDL_REVERB_MONO
       double b=m_allpasses[x+1][1].process(m_allpasses[x][1].process(*p1))*0.015;
+      #endif
 
+      #ifdef WDL_REVERB_MONO
+      *p0 = a;
+      #else
       if (m_wid<0)
       {
         double m=-m_wid;
@@ -200,31 +246,49 @@ public:
         *p0 = a*m + b*(1.0-m);
         *p1 = b*m + a*(1.0-m);
       }
+      #endif
       p0++;
+      #ifndef WDL_REVERB_MONO
       p1++;
+      #endif
     }
     
   }
 
+  #ifdef WDL_REVERB_MONO
+  void ProcessSample(double *spl0)
+  #else
   void ProcessSample(double *spl0, double *spl1)
+  #endif
   {
     int x;
     double in0=*spl0 * 0.015;
+    #ifndef WDL_REVERB_MONO
     double in1=*spl1 * 0.015;
+    #endif
 
     double out0=0.0;
+    #ifndef WDL_REVERB_MONO
     double out1=0.0;
+    #endif
     for (x = 0; x < sizeof(wdl_verb__combtunings)/sizeof(wdl_verb__combtunings[0]); x ++)
     {
       out0+=m_combs[x][0].process(in0);
+      #ifndef WDL_REVERB_MONO
       out1+=m_combs[x][1].process(in1);
+      #endif
     }
     for (x = 0; x < sizeof(wdl_verb__allpasstunings)/sizeof(wdl_verb__allpasstunings[0]); x ++)
     {
       out0=m_allpasses[x][0].process(out0);
+      #ifndef WDL_REVERB_MONO
       out1=m_allpasses[x][1].process(out1);
+      #endif
     }
 
+    #ifdef WDL_REVERB_MONO
+    *spl0 = out0;
+    #else
     if (m_wid<0)
     {
       double m=-m_wid;
@@ -237,6 +301,7 @@ public:
       *spl0 = out0*m + out1*(1.0-m);
       *spl1 = out1*m + out0*(1.0-m);
     }
+    #endif
   }
 
   void Reset(bool doclear=false) // call this after changing roomsize or dampening
@@ -246,27 +311,41 @@ public:
     for (x = 0; x < sizeof(wdl_verb__allpasstunings)/sizeof(wdl_verb__allpasstunings[0]); x ++)
     {
       m_allpasses[x][0].setsize((int) (wdl_verb__allpasstunings[x] * sc));
+      #ifndef WDL_REVERB_MONO
       m_allpasses[x][1].setsize((int) ((wdl_verb__allpasstunings[x]+wdl_verb__stereospread) * sc));
+      #endif
       m_allpasses[x][0].setfeedback(0.5);
+      #ifndef WDL_REVERB_MONO
       m_allpasses[x][1].setfeedback(0.5);
+      #endif
       if (doclear)
       {
         m_allpasses[x][0].Reset();
+        #ifndef WDL_REVERB_MONO
         m_allpasses[x][1].Reset();
+        #endif
       }
     }
     for (x = 0; x < sizeof(wdl_verb__combtunings)/sizeof(wdl_verb__combtunings[0]); x ++)
     {
       m_combs[x][0].setsize((int) (wdl_verb__combtunings[x] * sc));
+      #ifndef WDL_REVERB_MONO
       m_combs[x][1].setsize((int) ((wdl_verb__combtunings[x]+wdl_verb__stereospread) * sc));
+      #endif
       m_combs[x][0].setfeedback(m_roomsize);
+      #ifndef WDL_REVERB_MONO
       m_combs[x][1].setfeedback(m_roomsize);
+      #endif
       m_combs[x][0].setdamp(m_damp*0.4);
+      #ifndef WDL_REVERB_MONO
       m_combs[x][1].setdamp(m_damp*0.4);
+      #endif
       if (doclear)
       {
         m_combs[x][0].Reset();
+        #ifndef WDL_REVERB_MONO
         m_combs[x][1].Reset();
+        #endif
       }
     }
 
@@ -289,8 +368,8 @@ private:
   double m_roomsize;
   double m_damp;
   double m_srate;
-  WDL_ReverbAllpass m_allpasses[sizeof(wdl_verb__allpasstunings)/sizeof(wdl_verb__allpasstunings[0])][2];
-  WDL_ReverbComb m_combs[sizeof(wdl_verb__combtunings)/sizeof(wdl_verb__combtunings[0])][2];
+  WDL_ReverbAllpass m_allpasses[sizeof(wdl_verb__allpasstunings)/sizeof(wdl_verb__allpasstunings[0])][WDL_REVERB_NCH];
+  WDL_ReverbComb m_combs[sizeof(wdl_verb__combtunings)/sizeof(wdl_verb__combtunings[0])][WDL_REVERB_NCH];
 
 };
 
