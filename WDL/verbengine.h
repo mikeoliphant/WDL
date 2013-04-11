@@ -49,6 +49,13 @@
 #define WDL_REVERB_FIXED_WIDTH
 #endif
 
+// #define WDL_REVERB_ENABLE_SET_NCH to enable SetNumChannels()
+#ifdef WDL_REVERB_ENABLE_SET_NCH
+#define WDL_REVERB_if_m_nch_gt_1 if (m_nch > 1)
+#else
+#define WDL_REVERB_if_m_nch_gt_1
+#endif
+
 
 class WDL_ReverbAllpass
 {
@@ -154,6 +161,9 @@ public:
   #ifndef WDL_REVERB_FIXED_WIDTH
     SetWidth(1.0);
   #endif
+  #ifdef WDL_REVERB_ENABLE_SET_NCH
+    SetNumChannels(2);
+  #endif
     Reset(false);
   }
   ~WDL_ReverbEngine()
@@ -177,7 +187,7 @@ public:
     int x;
     memset(outp0,0,ns*sizeof(double));
     #ifndef WDL_REVERB_MONO
-    memset(outp1,0,ns*sizeof(double));
+    WDL_REVERB_if_m_nch_gt_1 memset(outp1,0,ns*sizeof(double));
     #endif
 
     for (x = 0; x < sizeof(wdl_verb__combtunings)/sizeof(wdl_verb__combtunings[0]); x += 2)
@@ -191,17 +201,19 @@ public:
       while (i--)
       {        
         double a=*i0++
-        #ifndef WDL_REVERB_MONO
+        #ifdef WDL_REVERB_ENABLE_SET_NCH
+        ,b; if (m_nch > 1) b=*i1++
+        #elif !defined(WDL_REVERB_MONO)
         ,b=*i1++
         #endif
         ;
         *p0+=m_combs[x][0].process(a); 
         #ifndef WDL_REVERB_MONO
-        *p1+=m_combs[x][1].process(b);
+        WDL_REVERB_if_m_nch_gt_1 *p1+=m_combs[x][1].process(b);
         #endif
         *p0+++=m_combs[x+1][0].process(a); 
         #ifndef WDL_REVERB_MONO
-        *p1+++=m_combs[x+1][1].process(b);
+        WDL_REVERB_if_m_nch_gt_1 *p1+++=m_combs[x+1][1].process(b);
         #endif
       }
     }
@@ -216,12 +228,19 @@ public:
       while (i--)
       {        
         double tmp=m_allpasses[x][0].process(*p0);
+
         #ifndef WDL_REVERB_MONO
-        double tmp2=m_allpasses[x][1].process(*p1);
+        #ifdef WDL_REVERB_ENABLE_SET_NCH
+        double tmp2; if (m_nch > 1) tmp2=
+        #else
+        double tmp2=
         #endif
+        m_allpasses[x][1].process(*p1);
+        #endif
+
         *p0++=m_allpasses[x+1][0].process(tmp);
         #ifndef WDL_REVERB_MONO
-        *p1++=m_allpasses[x+1][1].process(tmp2);
+        WDL_REVERB_if_m_nch_gt_1 *p1++=m_allpasses[x+1][1].process(tmp2);
         #endif
       }
     }
@@ -234,16 +253,29 @@ public:
     while (i--)
     {        
       double a=m_allpasses[x+1][0].process(m_allpasses[x][0].process(*p0))*0.015;
+
       #ifndef WDL_REVERB_MONO
-      double b=m_allpasses[x+1][1].process(m_allpasses[x][1].process(*p1))*0.015;
+      #ifdef WDL_REVERB_ENABLE_SET_NCH
+      double b; if (m_nch > 1) b=
+      #else
+      double b=
+      #endif
+      m_allpasses[x+1][1].process(m_allpasses[x][1].process(*p1))*0.015;
       #endif
 
     #ifdef WDL_REVERB_FIXED_WIDTH
       *p0 = a;
       #ifndef WDL_REVERB_MONO
-      *p1 = b;
+      WDL_REVERB_if_m_nch_gt_1 *p1 = b;
       #endif
     #else
+      #ifdef WDL_REVERB_ENABLE_SET_NCH
+      if (m_nch == 1)
+      {
+        *p0 = a;
+      }
+      else
+      #endif
       if (m_wid<0)
       {
         double m=-m_wid;
@@ -259,7 +291,7 @@ public:
     #endif
       p0++;
       #ifndef WDL_REVERB_MONO
-      p1++;
+      WDL_REVERB_if_m_nch_gt_1 p1++;
       #endif
     }
     
@@ -273,8 +305,14 @@ public:
   {
     int x;
     double in0=*spl0 * 0.015;
+
     #ifndef WDL_REVERB_MONO
-    double in1=*spl1 * 0.015;
+    #ifdef WDL_REVERB_ENABLE_SET_NCH
+    double in1; if (m_nch > 1) in1=
+    #else
+    double in1=
+    #endif
+    *spl1 * 0.015;
     #endif
 
     double out0=0.0;
@@ -285,23 +323,30 @@ public:
     {
       out0+=m_combs[x][0].process(in0);
       #ifndef WDL_REVERB_MONO
-      out1+=m_combs[x][1].process(in1);
+      WDL_REVERB_if_m_nch_gt_1 out1+=m_combs[x][1].process(in1);
       #endif
     }
     for (x = 0; x < sizeof(wdl_verb__allpasstunings)/sizeof(wdl_verb__allpasstunings[0]); x ++)
     {
       out0=m_allpasses[x][0].process(out0);
       #ifndef WDL_REVERB_MONO
-      out1=m_allpasses[x][1].process(out1);
+      WDL_REVERB_if_m_nch_gt_1 out1=m_allpasses[x][1].process(out1);
       #endif
     }
 
   #ifdef WDL_REVERB_FIXED_WIDTH
     *spl0 = out0;
     #ifndef WDL_REVERB_MONO
-    *spl1 = out1;
+    WDL_REVERB_if_m_nch_gt_1 *spl1 = out1;
     #endif
   #else
+    #ifdef WDL_REVERB_ENABLE_SET_NCH
+    if (m_nch == 1)
+    {
+      *spl0 = out0;
+    }
+    else
+    #endif
     if (m_wid<0)
     {
       double m=-m_wid;
@@ -379,6 +424,10 @@ public:
   } // -1..1
 #endif
 
+#ifdef WDL_REVERB_ENABLE_SET_NCH
+  void SetNumChannels(int n) { m_nch = n; } // 1 or 2
+#endif
+
 private:
 #ifndef WDL_REVERB_FIXED_WIDTH
   double m_wid;
@@ -386,10 +435,13 @@ private:
   double m_roomsize;
   double m_damp;
   double m_srate;
+#ifdef WDL_REVERB_ENABLE_SET_NCH
+  int m_nch;
+#endif
   WDL_ReverbAllpass m_allpasses[sizeof(wdl_verb__allpasstunings)/sizeof(wdl_verb__allpasstunings[0])][WDL_REVERB_NCH];
   WDL_ReverbComb m_combs[sizeof(wdl_verb__combtunings)/sizeof(wdl_verb__combtunings[0])][WDL_REVERB_NCH];
 
-};
+} WDL_FIXALIGN;
 
 
 #endif
