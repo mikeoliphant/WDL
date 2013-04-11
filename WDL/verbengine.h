@@ -44,6 +44,11 @@
 #define WDL_REVERB_NCH 2
 #endif
 
+// #define WDL_REVERB_FIXED_WIDTH for fixed width of 1.0
+#if defined(WDL_REVERB_MONO) && !defined(WDL_REVERB_FIXED_WIDTH)
+#define WDL_REVERB_FIXED_WIDTH
+#endif
+
 
 class WDL_ReverbAllpass
 {
@@ -146,7 +151,9 @@ public:
     m_srate=44100.0;
     m_roomsize=0.5;
     m_damp=0.5;
+  #ifndef WDL_REVERB_FIXED_WIDTH
     SetWidth(1.0);
+  #endif
     Reset(false);
   }
   ~WDL_ReverbEngine()
@@ -231,9 +238,12 @@ public:
       double b=m_allpasses[x+1][1].process(m_allpasses[x][1].process(*p1))*0.015;
       #endif
 
-      #ifdef WDL_REVERB_MONO
+    #ifdef WDL_REVERB_FIXED_WIDTH
       *p0 = a;
-      #else
+      #ifndef WDL_REVERB_MONO
+      *p1 = b;
+      #endif
+    #else
       if (m_wid<0)
       {
         double m=-m_wid;
@@ -246,7 +256,7 @@ public:
         *p0 = a*m + b*(1.0-m);
         *p1 = b*m + a*(1.0-m);
       }
-      #endif
+    #endif
       p0++;
       #ifndef WDL_REVERB_MONO
       p1++;
@@ -286,9 +296,12 @@ public:
       #endif
     }
 
-    #ifdef WDL_REVERB_MONO
+  #ifdef WDL_REVERB_FIXED_WIDTH
     *spl0 = out0;
-    #else
+    #ifndef WDL_REVERB_MONO
+    *spl1 = out1;
+    #endif
+  #else
     if (m_wid<0)
     {
       double m=-m_wid;
@@ -301,7 +314,7 @@ public:
       *spl0 = out0*m + out1*(1.0-m);
       *spl1 = out1*m + out0*(1.0-m);
     }
-    #endif
+  #endif
   }
 
   void Reset(bool doclear=false) // call this after changing roomsize or dampening
@@ -353,6 +366,8 @@ public:
 
   void SetRoomSize(double sz) { m_roomsize=sz;; } // 0.3..0.99 or so
   void SetDampening(double dmp) { m_damp=dmp; } // 0..1
+
+#ifndef WDL_REVERB_FIXED_WIDTH
   void SetWidth(double wid) 
   {  
     if (wid<-1) wid=-1; 
@@ -362,9 +377,12 @@ public:
     else wid-=0.5;
     m_wid=wid;
   } // -1..1
+#endif
 
 private:
+#ifndef WDL_REVERB_FIXED_WIDTH
   double m_wid;
+#endif
   double m_roomsize;
   double m_damp;
   double m_srate;
