@@ -122,7 +122,7 @@ public:
 	  double output = *bptr;
 	  filterstore = denormal_filter_double((output*(1-damp)) + (filterstore*damp));
 
-	  *bptr = inp + (filterstore*feedback);
+	  *bptr = denormal_filter_double(inp + (filterstore*feedback));
 
 	  if(++bufidx>=buffer.GetSize()) bufidx = 0;
 
