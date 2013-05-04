@@ -58,7 +58,6 @@ SWELL_API_DEFINE(ITEMIDLIST *, SHBrowseForFolder, (LPBROWSEINFO))
 #define IsIconic(x) (0)
 #define IsWindowEnabled(x) (1)
 #define TrackPopupMenuEx(a,b,c,d,e,f) TrackPopupMenu(a,b,c,d,0,e,NULL)
-#endif
 
 typedef UINT (CALLBACK *LPOFNHOOKPROC) (HWND, UINT, WPARAM, LPARAM);
 
@@ -161,5 +160,6 @@ SWELL_API_DEFINE(DWORD,GetFileSize,(HANDLE, DWORD *high))
 
 #define lstrcpyA strcpy
 #define lstrcpynA lstrcpyn
+#endif // !_WIN32
 
 #endif
