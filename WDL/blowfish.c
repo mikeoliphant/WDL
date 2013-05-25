@@ -348,7 +348,7 @@ void Blowfish_Decrypt(BLOWFISH_CTX *ctx, unsigned int *xl, unsigned int *xr)
   BSWAPONBIGE(xl,xr);
 }
 
-void Blowfish_Init(BLOWFISH_CTX *ctx, unsigned char *key, int keyLen) {
+void Blowfish_Init(BLOWFISH_CTX *ctx, const unsigned char *key, int keyLen) {
   int i, j=0;
   unsigned int *s=(unsigned int *)ORIG_P;
   unsigned int *p=ctx->P;

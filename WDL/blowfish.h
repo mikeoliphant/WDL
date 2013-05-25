@@ -14,7 +14,7 @@ typedef struct {
   unsigned int S[4*256];
 } BLOWFISH_CTX;
 
-void Blowfish_Init(BLOWFISH_CTX *ctx, unsigned char *key, int keyLen);
+void Blowfish_Init(BLOWFISH_CTX *ctx, const unsigned char *key, int keyLen);
 void Blowfish_Encrypt(BLOWFISH_CTX *ctx, unsigned int *xl, unsigned int *xr);
 void Blowfish_Decrypt(BLOWFISH_CTX *ctx, unsigned int *xl, unsigned int *xr);
 
