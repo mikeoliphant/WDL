@@ -7,6 +7,7 @@
 */
 
 #include "blowfish.h"
+#include "wdlendian.h"
 
 #define N 16
 
@@ -281,37 +282,10 @@ static const unsigned int ORIG_S[4*256] = {
 
 #define F(x) (((s[(x>>24)&0xff] + s[256+((x>>16)&0xff)]) ^ s[512+((x>>8)&0xff)]) + s[768+(x&0xff)])
 
-static char __bigE;
-
-static void BSWAPONBIGE(unsigned int *a,unsigned int *a2)
-{
-  if (__bigE>0)
-  {
-    unsigned char *b=(unsigned char *)a;
-    unsigned char c=b[0];
-    b[0]=b[3];
-    b[3]=c;
-    c=b[1];
-    b[1]=b[2];
-    b[2]=c;
-
-    b=(unsigned char *)a2;
-    c=b[0];
-    b[0]=b[3];
-    b[3]=c;
-    c=b[1];
-    b[1]=b[2];
-    b[2]=c;
-
-  }
-}
-
 void Blowfish_Encrypt(BLOWFISH_CTX *ctx, unsigned int *xl, unsigned int *xr) 
 {
-  BSWAPONBIGE(xl,xr);
-  {
-    unsigned int Xl=*xl;
-    unsigned int Xr=*xr;
+    unsigned int Xl=WDL_bswap32_if_be(*xl);
+    unsigned int Xr=WDL_bswap32_if_be(*xr);
     int i=N/2;
     unsigned int *p=ctx->P;
     unsigned int *s=(unsigned int *)ctx->S;
@@ -323,16 +297,14 @@ void Blowfish_Encrypt(BLOWFISH_CTX *ctx, unsigned int *xl, unsigned int *xr)
     }
     *xr = Xl ^ *p++;
     *xl = Xr ^ *p;
-  }
-  BSWAPONBIGE(xl,xr);
+    WDL_BSWAP32_IF_BE(*xl);
+    WDL_BSWAP32_IF_BE(*xr);
 }
 
 void Blowfish_Decrypt(BLOWFISH_CTX *ctx, unsigned int *xl, unsigned int *xr) 
 {
-  BSWAPONBIGE(xl,xr);
-  {
-    unsigned int Xl=*xl;
-    unsigned int Xr=*xr;
+    unsigned int Xl=WDL_bswap32_if_be(*xl);
+    unsigned int Xr=WDL_bswap32_if_be(*xr);
     unsigned int *p=ctx->P + N + 1;
     unsigned int *s=(unsigned int *)ctx->S;
     int i=N/2;
@@ -344,8 +316,8 @@ void Blowfish_Decrypt(BLOWFISH_CTX *ctx, unsigned int *xl, unsigned int *xr)
     }
     *xr = Xl ^ *p--;
     *xl = Xr ^ *p;
-  }
-  BSWAPONBIGE(xl,xr);
+    WDL_BSWAP32_IF_BE(*xl);
+    WDL_BSWAP32_IF_BE(*xr);
 }
 
 void Blowfish_Init(BLOWFISH_CTX *ctx, const unsigned char *key, int keyLen) {
@@ -354,12 +326,6 @@ void Blowfish_Init(BLOWFISH_CTX *ctx, const unsigned char *key, int keyLen) {
   unsigned int *p=ctx->P;
 
   unsigned int datal=0, datar=0;
-
-  if (!__bigE)
-  {
-    int a=1;
-    __bigE = (*(char *)&a) ? -1 : 1;
-  }
 
   i=N+2;
   while (i--) 
@@ -379,9 +345,11 @@ void Blowfish_Init(BLOWFISH_CTX *ctx, const unsigned char *key, int keyLen) {
   i=(N+2)/2;
   while (i--)
   {
-    BSWAPONBIGE(&datal,&datar);
+    WDL_BSWAP32_IF_BE(datal);
+    WDL_BSWAP32_IF_BE(datar);
     Blowfish_Encrypt(ctx, &datal, &datar);
-    BSWAPONBIGE(&datal,&datar);
+    WDL_BSWAP32_IF_BE(datal);
+    WDL_BSWAP32_IF_BE(datar);
     *p++=datal;
     *p++=datar;
   }
@@ -390,9 +358,11 @@ void Blowfish_Init(BLOWFISH_CTX *ctx, const unsigned char *key, int keyLen) {
   i=256/2*4;
   while (i--)
   {
-    BSWAPONBIGE(&datal,&datar);
+    WDL_BSWAP32_IF_BE(datal);
+    WDL_BSWAP32_IF_BE(datar);
     Blowfish_Encrypt(ctx, &datal, &datar);
-    BSWAPONBIGE(&datal,&datar);
+    WDL_BSWAP32_IF_BE(datal);
+    WDL_BSWAP32_IF_BE(datar);
     *s++ = datal;
     *s++ = datar;
   }
