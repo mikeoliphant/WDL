@@ -313,30 +313,31 @@ int MessageBox(HWND hwndParent, const char *text, const char *caption, int type)
   int ret=0;
 
   NSString *tit=(NSString *)SWELL_CStringToCFString(caption?caption:""); 
+  NSString *text2=(NSString *)SWELL_CStringToCFString(text?text:"");
   
   bool def2 = type & MB_DEFBUTTON2;
   type &= 0x7;
 
   if (type == MB_OK)
   {
-    NSRunAlertPanel(tit,@"%s",@"OK",@"",@"",text?text:"");
+    NSRunAlertPanel(tit,@"%@",@"OK",@"",@"",text2);
     ret=IDOK;
   }	
   else if (type == MB_OKCANCEL)
   {
     if (def2)
-      ret=!NSRunAlertPanel(tit,@"%s",@"Cancel",@"OK",@"",text?text:"");
+      ret=!NSRunAlertPanel(tit,@"%@",@"Cancel",@"OK",@"",text2);
     else
-      ret=NSRunAlertPanel(tit,@"%s",@"OK",@"Cancel",@"",text?text:"");
+      ret=NSRunAlertPanel(tit,@"%@",@"OK",@"Cancel",@"",text2);
     if (ret) ret=IDOK;
     else ret=IDCANCEL;
   }
   else if (type == MB_YESNO)
   {
     if (def2)
-      ret=!NSRunAlertPanel(tit,@"%s",@"No",@"Yes",@"",text?text:"");
+      ret=!NSRunAlertPanel(tit,@"%@",@"No",@"Yes",@"",text2);
     else
-      ret=NSRunAlertPanel(tit,@"%s",@"Yes",@"No",@"",text?text:"");
+      ret=NSRunAlertPanel(tit,@"%@",@"Yes",@"No",@"",text2);
   //  printf("ret=%d\n",ret);
     if (ret) ret=IDYES;
     else ret=IDNO;
@@ -344,9 +345,9 @@ int MessageBox(HWND hwndParent, const char *text, const char *caption, int type)
   else if (type == MB_RETRYCANCEL)
   {
     if (def2)
-      ret=!NSRunAlertPanel(tit,@"%s",@"Cancel",@"Retry",@"",text?text:"");
+      ret=!NSRunAlertPanel(tit,@"%@",@"Cancel",@"Retry",@"",text2);
     else
-      ret=NSRunAlertPanel(tit,@"%s",@"Retry",@"Cancel",@"",text?text:"");
+      ret=NSRunAlertPanel(tit,@"%@",@"Retry",@"Cancel",@"",text2);
 //    printf("ret=%d\n",ret);
     if (ret) ret=IDRETRY;
     else ret=IDCANCEL;
@@ -354,14 +355,15 @@ int MessageBox(HWND hwndParent, const char *text, const char *caption, int type)
   else if (type == MB_YESNOCANCEL)
   {
     if (def2)
-      ret=-NSRunAlertPanel(tit,@"%s",@"No",@"Cancel",@"Yes",text?text:"");
+      ret=-NSRunAlertPanel(tit,@"%@",@"No",@"Cancel",@"Yes",text2);
     else
-      ret=NSRunAlertPanel(tit,@"%s",@"Yes",@"Cancel",@"No",text?text:"");
+      ret=NSRunAlertPanel(tit,@"%@",@"Yes",@"Cancel",@"No",text2);
     if (ret == 1) ret=IDYES;
     else if (ret==-1) ret=IDNO;
     else ret=IDCANCEL;
   }
   
+  [text2 release];
   [tit release];
   
   return ret; 
