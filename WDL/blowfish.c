@@ -4,10 +4,13 @@
  * Date       :  1997
  * Description:  C implementation of the Blowfish algorithm.
 
+  CBC mode wrappers by Theo Niessink <http://www.taletn.com/>.
+
 */
 
 #include "blowfish.h"
 #include "wdlendian.h"
+#include "md5.h"
 
 #define N 16
 
@@ -366,4 +369,124 @@ void Blowfish_Init(BLOWFISH_CTX *ctx, const unsigned char *key, int keyLen) {
     *s++ = datal;
     *s++ = datar;
   }
+}
+
+#define MAX_KEY_LEN 56
+
+void Blowfish_CBC_Init(BLOWFISH_CBC_CTX *ctx, const char *pass, int passLen, const unsigned char *salt, int keyLen)
+{
+  unsigned char hash[MD5_DIGEST_LENGTH], data[MAX_KEY_LEN + MD5_DIGEST_LENGTH];
+  const int saltLen = 8, ivLen = 8;
+  int wantLen = keyLen + ivLen;
+  int dataLen = 0, hashLen = 0;
+
+  // assert(keyLen >= 4 && keyLen <= MAX_KEY_LEN);
+
+  while (dataLen < wantLen)
+  {
+    MD5_CTX md5;
+    MD5_Init(&md5);
+
+    if (!hashLen) hashLen = 16;
+    else MD5_Update(&md5, hash, hashLen);
+
+    MD5_Update(&md5, (void*)pass, passLen);
+    MD5_Update(&md5, (void*)salt, saltLen);
+    MD5_Final(hash, &md5);
+
+    memcpy(data + dataLen, hash, hashLen);
+    dataLen += hashLen;
+  }
+
+  #if 0 // defined(_DEBUG)
+  {
+    int i;
+
+    printf("salt=");
+    for (i = 0; i < saltLen; ++i) printf("%02X", salt[i]);
+    printf("\n");
+
+    printf("key=");
+    for (i = 0; i < keyLen; ++i) printf("%02X", data[i]);
+    printf("\n");
+
+    printf("iv =");
+    for (; i < keyLen + ivLen; ++i) printf("%02X", data[i]);
+    printf("\n");
+  }
+  #endif
+
+  Blowfish_Init(&ctx->bf, data, keyLen);
+  memcpy(ctx->iv, data + keyLen, ivLen);
+}
+
+int Blowfish_CBC_Encrypt(BLOWFISH_CBC_CTX *ctx, void *buf, int bufLen)
+{
+  unsigned int *p = (unsigned int *)buf;
+  int i, n = bufLen / 8 + 1, m = n * 8;
+  unsigned int x = ctx->iv[0], y = ctx->iv[1];
+
+  unsigned char* pad = (unsigned char*)buf + bufLen, ch = m - bufLen;
+  for (i = bufLen; i < m; ++i) *pad++ = ch;
+
+  for (i = 0; i < n; ++i)
+  {
+    unsigned int *q = p + 1;
+
+    *p ^= x;
+    *q ^= y;
+
+    WDL_BSWAP32_IF_LE(*p);
+    WDL_BSWAP32_IF_LE(*q);
+
+    Blowfish_Encrypt(&ctx->bf, p, q);
+
+    WDL_BSWAP32_IF_LE(*p);
+    WDL_BSWAP32_IF_LE(*q);
+
+    x = *p;
+    y = *q;
+
+    p += 2;
+  }
+
+  ctx->iv[0] = x;
+  ctx->iv[1] = y;
+
+  return m;
+}
+
+int Blowfish_CBC_Decrypt(BLOWFISH_CBC_CTX *ctx, void *buf, int bufLen)
+{
+  unsigned int *p = (unsigned int *)buf;
+  int i, n = bufLen / 8;
+  unsigned int x = ctx->iv[0], y = ctx->iv[1];
+
+  if (bufLen % 8) ++n;
+
+  for (i = 0; i < n; ++i)
+  {
+    unsigned int *q = p + 1, tmp0 = *p, tmp1 = *q;
+
+    WDL_BSWAP32_IF_LE(*p);
+    WDL_BSWAP32_IF_LE(*q);
+
+    Blowfish_Decrypt(&ctx->bf, p, q);
+
+    WDL_BSWAP32_IF_LE(*p);
+    WDL_BSWAP32_IF_LE(*q);
+
+    *p ^= x;
+    *q ^= y;
+
+    x = tmp0;
+    y = tmp1;
+
+    p += 2;
+  }
+
+  ctx->iv[0] = x;
+  ctx->iv[1] = y;
+
+  return n * 8 - *((unsigned char*)buf + bufLen - 1);
 }
