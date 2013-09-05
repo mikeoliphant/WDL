@@ -28,7 +28,7 @@
 PROJECT = LICE
 OUTFILE = lice.lib
 
-CPPFLAGS = $(CPPFLAGS) /EHsc /GR- /D "WIN32" /D "_LIB" /D "_MBCS" /fp:fast /MT /c /Fo"$(OUTDIR)/" /Fd"$(OUTDIR)/" /W3 /WX /D "_CRT_SECURE_NO_WARNINGS" /wd4996 /nologo
+CPPFLAGS = $(CPPFLAGS) /EHsc /D "WIN32" /D "_LIB" /D "_MBCS" /fp:fast /MT /c /Fo"$(OUTDIR)/" /Fd"$(OUTDIR)/" /W3 /WX /D "_CRT_SECURE_NO_WARNINGS" /wd4996 /nologo
 
 !IF "$(TARGET_CPU)" == "x64" || "$(CPU)" == "AMD64" || "$(PLATFORM)" == "x64"
 
@@ -54,7 +54,7 @@ CONFIGURATION = Release
 
 !IF "$(CONFIGURATION)" == "Release"
 
-CPPFLAGS = $(CPPFLAGS) /D "NDEBUG" /O2 /GS-
+CPPFLAGS = $(CPPFLAGS) /D "NDEBUG" /O2 /GS- /GR-
 
 !ELSE IF "$(CONFIGURATION)" == "Debug"
 
