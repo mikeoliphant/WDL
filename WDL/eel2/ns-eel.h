@@ -84,6 +84,7 @@ int NSEEL_init(); // returns 0 on success. clears any added functions as well
 #define NSEEL_addfunction(name,nparms,code,len) NSEEL_addfunctionex((name),(nparms),(code),(len),0,0)
 #define NSEEL_addfunctionex(name,nparms,code,len,pproc,fptr) NSEEL_addfunctionex2((name),(nparms),(code),(len),(pproc),(fptr),0)
 
+struct _compileContext;
 typedef void *(*NSEEL_PPPROC)(void *data, int data_size, struct _compileContext *userfunc_data);
 
 void NSEEL_addfunctionex2(const char *name, int nparms, char *code_startaddr, int code_len, NSEEL_PPPROC pproc, void *fptr, void *fptr2);
@@ -169,8 +170,6 @@ extern int NSEEL_RAM_memused_errors;
 #define NSEEL_SHARED_GRAM_SIZE (1<<20)
 
 
-
-
 // note: if you wish to change NSEEL_RAM_*, and your target is x86-64, you will need to regenerate things.
 
 // on osx:
@@ -199,6 +198,11 @@ extern int NSEEL_RAM_memused_errors;
 #ifdef EEL_TARGET_PORTABLE
 #define EEL_BC_TYPE int
 #endif
+
+#ifdef NSEEL_EEL1_COMPAT_MODE
+double *NSEEL_getglobalregs();
+#endif
+
 
 #ifdef __cplusplus
 }

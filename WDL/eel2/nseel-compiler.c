@@ -36,7 +36,9 @@
 #include <ctype.h>
 
 #ifdef __APPLE__
-  #ifdef __LP64__
+  #include <AvailabilityMacros.h>
+
+  #if defined(__LP64__) || defined(MAC_OS_X_VERSION_10_7) // using 10.7+ SDK, force mprotect use
     #define EEL_USE_MPROTECT
   #endif
 #endif
@@ -2824,7 +2826,6 @@ int compileOpcodes(compileContext *ctx, opcodeRec *op, unsigned char *bufOut, in
     if (!stub || bufOut_len < stubsize) RET_MINUS1_FAIL(stub?"booltofp size":"booltfp addr")
     if (bufOut) 
     {
-      unsigned char *p=bufOut;
       memcpy(bufOut,stub,stubsize);
       bufOut += stubsize;
     }
@@ -4309,9 +4310,21 @@ void NSEEL_VM_clear_var_refcnts(NSEEL_VMCTX _ctx)
 
 nseel_globalVarItem *nseel_globalreg_list;
 
+#ifdef NSEEL_EEL1_COMPAT_MODE
+static EEL_F __nseel_global_regs[100];
+double *NSEEL_getglobalregs() { return __nseel_global_regs; }
+#endif
+
 static EEL_F *get_global_var(const char *gv, int addIfNotPresent)
 {
   nseel_globalVarItem *p;
+#ifdef NSEEL_EEL1_COMPAT_MODE
+  if (!strncasecmp(gv,"reg",3) && gv[3]>='0' && gv[3] <= '9' && gv[4] >= '0' && gv[4] <= '9' && !gv[5])
+  {
+    return __nseel_global_regs + atoi(gv+3);
+  }
+#endif
+
   NSEEL_HOSTSTUB_EnterMutex(); 
   p = nseel_globalreg_list;
   while (p)
@@ -4530,7 +4543,7 @@ opcodeRec *nseel_lookup(compileContext *ctx, int *typeOfObject, const char *snam
         ctx->function_localTable_Names[0] && 
         ctx->function_localTable_ValuePtrs)
     {
-      const char * const * const namelist = ctx->function_localTable_Names[0];
+      char * const * const namelist = ctx->function_localTable_Names[0];
       const int namelist_sz = ctx->function_localTable_Size[0];
       int i;
       for (i=0; i < namelist_sz; i++)
@@ -4560,7 +4573,7 @@ opcodeRec *nseel_lookup(compileContext *ctx, int *typeOfObject, const char *snam
         ctx->function_localTable_Size[1] > 0 && 
         ctx->function_localTable_Names[1])
     {
-      const char * const * const namelist = ctx->function_localTable_Names[1];
+      char * const * const namelist = ctx->function_localTable_Names[1];
       const int namelist_sz = ctx->function_localTable_Size[1];
       int i;
       for (i=0; i < namelist_sz; i++)
