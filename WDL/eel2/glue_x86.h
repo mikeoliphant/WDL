@@ -94,7 +94,45 @@ const static unsigned int GLUE_FUNC_LEAVE[1];
     *(INT_PTR *)b = v; 
   }
   const static unsigned char  GLUE_PUSH_P1[4]={0x83, 0xEC, 12,   0x50}; // sub esp, 12, push eax
-  
+
+  #define GLUE_STORE_P1_TO_STACK_AT_OFFS_SIZE 7
+  static void GLUE_STORE_P1_TO_STACK_AT_OFFS(void *b, int offs)
+  {
+    ((unsigned char *)b)[0] = 0x89; // mov [esp+offs], eax
+    ((unsigned char *)b)[1] = 0x84;
+    ((unsigned char *)b)[2] = 0x24;
+    *(int *)((unsigned char *)b+3) = offs;
+  }
+
+  #define GLUE_MOVE_PX_STACKPTR_SIZE 2
+  static void GLUE_MOVE_PX_STACKPTR_GEN(void *b, int wv)
+  {
+    static const unsigned char tab[3][GLUE_MOVE_PX_STACKPTR_SIZE]=
+    {
+      { 0x89, 0xe0 }, // mov eax, esp
+      { 0x89, 0xe7 }, // mov edi, esp
+      { 0x89, 0xe1 }, // mov ecx, esp
+    };    
+    memcpy(b,tab[wv],GLUE_MOVE_PX_STACKPTR_SIZE);
+  }
+
+  #define GLUE_MOVE_STACK_SIZE 6
+  static void GLUE_MOVE_STACK(void *b, int amt)
+  {
+    ((unsigned char *)b)[0] = 0x81;
+    if (amt <0)
+    {
+      ((unsigned char *)b)[1] = 0xEC;
+      *(int *)((char*)b+2) = -amt; // sub esp, -amt
+    }
+    else
+    {
+      ((unsigned char *)b)[1] = 0xc4;
+      *(int *)((char*)b+2) = amt; // add esp, amt
+    }
+  }
+
+
   #define GLUE_POP_PX_SIZE 4
   static void GLUE_POP_PX(void *b, int wv)
   {
@@ -192,7 +230,7 @@ static void GLUE_CALL_CODE(INT_PTR bp, INT_PTR cp, INT_PTR ramptr)
 #ifndef NSEEL_EEL1_COMPAT_MODE
       fnstcw [oldsw]
       mov ax, [oldsw]
-      or ax, 0xC00
+      or ax, 0xE3F  // 53 or 64 bit precision (depending on whether 0x100 is set), trunc, and masking all exceptions
       mov [newsw], ax
       fldcw [newsw]
 #endif
@@ -227,7 +265,7 @@ static void GLUE_CALL_CODE(INT_PTR bp, INT_PTR cp, INT_PTR ramptr)
 #ifndef NSEEL_EEL1_COMPAT_MODE
       "fnstcw %2\n"
       "movw %2, %%ax\n"
-      "orw $0xC00, %%ax\n"
+      "orw $0xE3F, %%ax\n" // 53 or 64 bit precision (depending on whether 0x100 is set), trunc, and masking all exceptions
       "movw %%ax, %3\n"
       "fldcw %3\n"
 #endif

@@ -70,15 +70,23 @@ int NSEEL_init(); // returns 0 on success. clears any added functions as well
 
 // adds a function that returns a value (EEL_F)
 #define NSEEL_addfunc_retval(name,np,pproc,fptr) \
-    NSEEL_addfunctionex(name,np,(char *)_asm_generic##np##parm_retd,(char *)_asm_generic##np##parm_retd##_end-(char *)_asm_generic##np##parm_retd,(void*)(pproc),(void*)(fptr))
+    NSEEL_addfunctionex(name,np,(char *)_asm_generic##np##parm_retd,(char *)_asm_generic##np##parm_retd_end-(char *)_asm_generic##np##parm_retd,pproc,(void*)(fptr))
 
 // adds a function that returns a pointer (EEL_F*)
 #define NSEEL_addfunc_retptr(name,np,pproc,fptr) \
-    NSEEL_addfunctionex(name,np,(char *)_asm_generic##np##parm,(char *)_asm_generic##np##parm##_end-(char *)_asm_generic##np##parm,(void*)(pproc),(void*)(fptr))
+    NSEEL_addfunctionex(name,np,(char *)_asm_generic##np##parm,(char *)_asm_generic##np##parm_end-(char *)_asm_generic##np##parm,pproc,(void*)(fptr))
 
 // adds a void or bool function
 #define NSEEL_addfunc_retbool(name,np,pproc,fptr) \
-  NSEEL_addfunctionex(name,(np)|(/*BIF_RETURNSBOOL*/0x00400),(char *)_asm_generic##np##parm_retd,(char *)_asm_generic##np##parm_retd##_end-(char *)_asm_generic##np##parm_retd,(void*)(pproc),(void*)(fptr))
+  NSEEL_addfunctionex(name,(np)|(/*BIF_RETURNSBOOL*/0x00400),(char *)_asm_generic##np##parm,(char *)_asm_generic##np##parm##_end-(char *)_asm_generic##np##parm,pproc,(void*)(fptr))
+
+// adds a function that takes min_np or more parameters (func sig needs to be EEL_F func(void *ctx, INT_PTR np, EEL_F **parms)
+#define NSEEL_addfunc_varparm(name, min_np, pproc, fptr) \
+    NSEEL_addfunctionex(name,min_np|(/*BIF_TAKES_VARPARM*/0x0400000),(char *)_asm_generic2parm_retd,(char *)_asm_generic2parm_retd_end-(char *)_asm_generic2parm_retd,pproc,(void*)(fptr))
+
+// adds a function that takes np parameters via func: sig needs to be EEL_F func(void *ctx, INT_PTR np, EEL_F **parms)
+#define NSEEL_addfunc_exparms(name, np, pproc, fptr) \
+    NSEEL_addfunctionex(name,np|(/*BIF_TAKES_VARPARM_EX*/0x0C00000),(char *)_asm_generic2parm_retd,(char *)_asm_generic2parm_retd_end-(char *)_asm_generic2parm_retd,pproc,(void*)(fptr))
 
 
 #define NSEEL_addfunction(name,nparms,code,len) NSEEL_addfunctionex((name),(nparms),(code),(len),0,0)
@@ -122,6 +130,19 @@ void NSEEL_VM_FreeGRAM(void **ufd); // frees a gmem context.
 void NSEEL_VM_SetCustomFuncThis(NSEEL_VMCTX ctx, void *thisptr);
 
 
+struct eelStringSegmentRec {
+  struct eelStringSegmentRec *_next;
+  const char *str_start; // escaped characters, including opening/trailing characters
+  int str_len; 
+};
+void NSEEL_VM_SetStringFunc(NSEEL_VMCTX ctx, 
+    EEL_F (*onString)(void *caller_this, struct eelStringSegmentRec *list),
+    EEL_F (*onNamedString)(void *caller_this, const char *name));
+
+// call with NULL to calculate size, or non-null to generate to buffer (returning size used -- will not null terminate, caller responsibility)
+int nseel_stringsegments_tobuf(char *bufOut, int bufout_sz, struct eelStringSegmentRec *list); 
+
+
 NSEEL_CODEHANDLE NSEEL_code_compile(NSEEL_VMCTX ctx, const char *code, int lineoffs);
 #define NSEEL_CODE_COMPILE_FLAG_COMMONFUNCS 1 // allows that code's functions to be used in other code (note you shouldn't destroy that codehandle without destroying others first if used)
 #define NSEEL_CODE_COMPILE_FLAG_COMMONFUNCS_RESET 2 // resets common code functions
@@ -144,17 +165,11 @@ extern int NSEEL_RAM_memused_errors;
 
 // configuration:
 
-  // the old parser may have more quirks. 
-  // Changes in the new parser:
-  //   1) expressions such as a = (1+5;3); now work as expected (a is set to 3, rather than 4).
-  //   2) 0xHEXNUMBER is now allowed (old parser required $xHEXNUMBER
-  //   3) error notices (unsure which is more accurate)
-  //   4) new parser allows more than 3 parameter eel-functions (up to NSEEL_MAX_EELFUNC_PARAMETERS)
+// use the handwritten lexer -- the flex (eel2.l generated) lexer mostly works, but doesn't support string parsing at the moment
+// this mode is faster and uses less ram than eel2.l anyway, so leave it on
+#define NSEEL_SUPER_MINIMAL_LEXER 
 
-  //#define NSEEL_USE_OLD_PARSER
-#define NSEEL_SUPER_MINIMAL_LEXER // smaller code that uses far less ram, but the flex version we'll keep around too in case we want to do fancier things someday
-
- // #define NSEEL_EEL1_COMPAT_MODE // supports old behaviors (continue after failed compile), old functions _bnot etc.
+ // #define NSEEL_EEL1_COMPAT_MODE // supports old behaviors (continue after failed compile), old functions _bnot etc. disables string support (strings were used as comments in eel1 etc)
 
 #define NSEEL_MAX_VARIABLE_NAMELEN 128  // define this to override the max variable length
 #define NSEEL_MAX_EELFUNC_PARAMETERS 40
@@ -170,6 +185,7 @@ extern int NSEEL_RAM_memused_errors;
 // when a VM ctx doesn't have a GRAM context set, make the global one this big
 #define NSEEL_SHARED_GRAM_SIZE (1<<20)
 
+//#define EEL_DUMP_OPS // used for testing frontend parser/logic changes
 
 // note: if you wish to change NSEEL_RAM_*, and your target is x86-64, you will need to regenerate things.
 
