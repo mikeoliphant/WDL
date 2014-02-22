@@ -29,11 +29,6 @@
 #include "zlib.h"
 #include "zip.h"
 
-
-#ifndef NOCRYPT
-        #define NOCRYPT
-#endif
-
 #ifdef STDC
 #  include <stddef.h>
 #  include <string.h>
@@ -45,6 +40,9 @@
 #   include <errno.h>
 #endif
 
+#if !defined(NOCRYPT) && !defined(WANTCRYPT)
+#define NOCRYPT
+#endif
 
 #ifndef local
 #  define local static
