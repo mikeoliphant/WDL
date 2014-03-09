@@ -1,8 +1,8 @@
 
 /* pngwrite.c - general routines to write a PNG file
  *
- * Last changed in libpng 1.6.8 [December 19, 2013]
- * Copyright (c) 1998-2013 Glenn Randers-Pehrson
+ * Last changed in libpng 1.6.9 [February 6, 2014]
+ * Copyright (c) 1998-2014 Glenn Randers-Pehrson
  * (Version 0.96 Copyright (c) 1996, 1997 Andreas Dilger)
  * (Version 0.88 Copyright (c) 1995, 1996 Guy Eric Schalnat, Group 42, Inc.)
  *
@@ -606,6 +606,71 @@ png_write_image(png_structrp png_ptr, png_bytepp image)
       }
    }
 }
+
+#ifdef PNG_MNG_FEATURES_SUPPORTED
+/* Performs intrapixel differencing  */
+static void
+png_do_write_intrapixel(png_row_infop row_info, png_bytep row)
+{
+   png_debug(1, "in png_do_write_intrapixel");
+
+   if ((row_info->color_type & PNG_COLOR_MASK_COLOR))
+   {
+      int bytes_per_pixel;
+      png_uint_32 row_width = row_info->width;
+      if (row_info->bit_depth == 8)
+      {
+         png_bytep rp;
+         png_uint_32 i;
+
+         if (row_info->color_type == PNG_COLOR_TYPE_RGB)
+            bytes_per_pixel = 3;
+
+         else if (row_info->color_type == PNG_COLOR_TYPE_RGB_ALPHA)
+            bytes_per_pixel = 4;
+
+         else
+            return;
+
+         for (i = 0, rp = row; i < row_width; i++, rp += bytes_per_pixel)
+         {
+            *(rp)     = (png_byte)((*rp       - *(rp + 1)) & 0xff);
+            *(rp + 2) = (png_byte)((*(rp + 2) - *(rp + 1)) & 0xff);
+         }
+      }
+
+#ifdef PNG_WRITE_16BIT_SUPPORTED
+      else if (row_info->bit_depth == 16)
+      {
+         png_bytep rp;
+         png_uint_32 i;
+
+         if (row_info->color_type == PNG_COLOR_TYPE_RGB)
+            bytes_per_pixel = 6;
+
+         else if (row_info->color_type == PNG_COLOR_TYPE_RGB_ALPHA)
+            bytes_per_pixel = 8;
+
+         else
+            return;
+
+         for (i = 0, rp = row; i < row_width; i++, rp += bytes_per_pixel)
+         {
+            png_uint_32 s0   = (*(rp    ) << 8) | *(rp + 1);
+            png_uint_32 s1   = (*(rp + 2) << 8) | *(rp + 3);
+            png_uint_32 s2   = (*(rp + 4) << 8) | *(rp + 5);
+            png_uint_32 red  = (png_uint_32)((s0 - s1) & 0xffffL);
+            png_uint_32 blue = (png_uint_32)((s2 - s1) & 0xffffL);
+            *(rp    ) = (png_byte)((red >> 8) & 0xff);
+            *(rp + 1) = (png_byte)(red & 0xff);
+            *(rp + 4) = (png_byte)((blue >> 8) & 0xff);
+            *(rp + 5) = (png_byte)(blue & 0xff);
+         }
+      }
+#endif /* PNG_WRITE_16BIT_SUPPORTED */
+   }
+}
+#endif /* PNG_MNG_FEATURES_SUPPORTED */
 
 /* Called by user to write a row of image data */
 void PNGAPI
@@ -2332,4 +2397,60 @@ png_image_write_to_file(png_imagep image, const char *file_name,
 }
 #endif /* PNG_STDIO_SUPPORTED */
 #endif /* SIMPLIFIED_WRITE */
+
+
 #endif /* PNG_WRITE_SUPPORTED */
+
+void PNGAPI
+png_set_compression_buffer_size(png_structrp png_ptr, png_size_t size)
+{
+    if (png_ptr == NULL)
+       return;
+
+    if (size == 0 || size > PNG_UINT_31_MAX)
+       png_error(png_ptr, "invalid compression buffer size");
+
+#  ifdef PNG_SEQUENTIAL_READ_SUPPORTED
+      if (png_ptr->mode & PNG_IS_READ_STRUCT)
+      {
+         png_ptr->IDAT_read_size = (png_uint_32)size; /* checked above */
+         return;
+      }
+#  endif
+
+#  ifdef PNG_WRITE_SUPPORTED
+      if (!(png_ptr->mode & PNG_IS_READ_STRUCT))
+      {
+         if (png_ptr->zowner != 0)
+         {
+            png_warning(png_ptr,
+              "Compression buffer size cannot be changed because it is in use");
+            return;
+         }
+
+         if (size > ZLIB_IO_MAX)
+         {
+            png_warning(png_ptr,
+               "Compression buffer size limited to system maximum");
+            size = ZLIB_IO_MAX; /* must fit */
+         }
+
+         else if (size < 6)
+         {
+            /* Deflate will potentially go into an infinite loop on a SYNC_FLUSH
+             * if this is permitted.
+             */
+            png_warning(png_ptr,
+               "Compression buffer size cannot be reduced below 6");
+            return;
+         }
+
+         if (png_ptr->zbuffer_size != size)
+         {
+            png_free_buffer_list(png_ptr, &png_ptr->zbuffer_list);
+            png_ptr->zbuffer_size = (uInt)size;
+         }
+      }
+#  endif
+}
+
