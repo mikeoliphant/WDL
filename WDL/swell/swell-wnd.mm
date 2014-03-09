@@ -152,16 +152,6 @@ template<class T> static int ptrlist_bsearch_mod(void *key, WDL_PtrList<T> *arr,
 }
 
 
-SWELL_ListView_Row::SWELL_ListView_Row()
-{
-  m_imageidx=0;
-  m_param=0;
-}
-SWELL_ListView_Row::~SWELL_ListView_Row()
-{
-  m_vals.Empty(true,free);
-}
-
 HTREEITEM__::HTREEITEM__()
 {
   m_param=0;
@@ -1483,7 +1473,7 @@ LRESULT SendMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
       {
         NSRange range={0,};
         NSResponder *rs = [[obj window] firstResponder];
-        if ([rs isKindOfClass:[NSView class]] && [rs isDescendantOf:obj])
+        if ([rs isKindOfClass:[NSView class]] && [(NSView *)rs isDescendantOf:obj])
         {
           NSText* text=[[obj window] fieldEditor:YES forObject:(NSTextField*)obj];  
           if (text) range=[text selectedRange];
@@ -1496,7 +1486,7 @@ LRESULT SendMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         //        [(NSTextField*)obj selectText:obj]; // Force the window's text field editor onto this control
         // don't force it, just ignore EM_GETSEL/EM_SETSEL if not in focus
         NSResponder *rs = [[obj window] firstResponder];
-        if ([rs isKindOfClass:[NSView class]] && [rs isDescendantOf:obj])
+        if ([rs isKindOfClass:[NSView class]] && [(NSView *)rs isDescendantOf:obj])
         {
           NSText* text = [[obj window] fieldEditor:YES forObject:(NSTextField*)obj]; // then get it from the window 
           int sl = [[text string] length];

@@ -216,7 +216,7 @@ public:
   int m_gfx_font_active; // -1 for default, otherwise index into gfx_fonts (NOTE: this differs from the exposed API, which defines 0 as default, 1-n)
   LICE_IFont *GetActiveFont() { return m_gfx_font_active>=0&&m_gfx_font_active<m_gfx_fonts.GetSize() && m_gfx_fonts.Get()[m_gfx_font_active].use_fonth ? m_gfx_fonts.Get()[m_gfx_font_active].font : NULL; }
 
-  LICE_IBitmap *GetImageForIndex(EEL_F idx) 
+  LICE_IBitmap *GetImageForIndex(EEL_F idx, const char *callername) 
   { 
     if (idx>-2.0)
     {
@@ -282,6 +282,7 @@ public:
   unsigned char m_kb_queue_pos;
 
 #endif
+  bool m_has_had_getch; // set on first gfx_getchar(), makes mouse_cap updated with modifiers even when no mouse click is down
 };
 
 
@@ -327,6 +328,7 @@ eel_lice_state::eel_lice_state(NSEEL_VMCTX vm, void *ctx, int image_slots, int f
 
   if (m_gfx_texth) *m_gfx_texth=8;
 
+  m_has_had_getch=0;
 }
 eel_lice_state::~eel_lice_state()
 {
@@ -531,7 +533,7 @@ static EEL_F NSEEL_CGEN_CALL _gfx_printf(void *opaque, INT_PTR nparms, EEL_F **p
   if (ctx && nparms>0) 
   {
     EEL_F v= **parms;
-    ctx->gfx_drawstr(opaque,v,1,nparms-1,parms+1);
+    ctx->gfx_drawstr(opaque,v,1,(int)nparms-1,parms+1);
     return v;
   }
   return 0.0;
@@ -560,7 +562,7 @@ static EEL_F * NSEEL_CGEN_CALL _gfx_blit(void *opaque, EEL_F *img, EEL_F *scale,
 static EEL_F NSEEL_CGEN_CALL _gfx_setfont(void *opaque, INT_PTR np, EEL_F **parms)
 {
   eel_lice_state *ctx=EEL_LICE_GET_CONTEXT(opaque);
-  if (ctx) return ctx->gfx_setfont(opaque,np,parms);
+  if (ctx) return ctx->gfx_setfont(opaque,(int)np,parms);
   return 0.0;
 }
 
@@ -576,7 +578,7 @@ static EEL_F NSEEL_CGEN_CALL _gfx_blit2(void *opaque, INT_PTR np, EEL_F **parms)
   eel_lice_state *ctx=EEL_LICE_GET_CONTEXT(opaque);
   if (ctx && np>=3) 
   {
-    ctx->gfx_blitext2(np,parms,0);
+    ctx->gfx_blitext2((int)np,parms,0);
     return *(parms[0]);
   }
   return 0.0;
@@ -642,7 +644,7 @@ static EEL_F NSEEL_CGEN_CALL _gfx_setimgdim(void *opaque, EEL_F *img, EEL_F *w, 
 
 void eel_lice_state::gfx_lineto(EEL_F xpos, EEL_F ypos, EEL_F aaflag)
 {
-  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest);
+  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest,"gfx_lineto");
   if (!dest) return;
 
   int x1=(int)floor(xpos),y1=(int)floor(ypos),x2=(int)floor(*m_gfx_x), y2=(int)floor(*m_gfx_y);
@@ -650,7 +652,7 @@ void eel_lice_state::gfx_lineto(EEL_F xpos, EEL_F ypos, EEL_F aaflag)
       LICE_FUNCTION_VALID(LICE_ClipLine) && 
       LICE_ClipLine(&x1,&y1,&x2,&y2,0,0,LICE__GetWidth(dest),LICE__GetHeight(dest))) 
   {
-    LICE_Line(dest,x1,y1,x2,y2,getCurColor(),*m_gfx_a,getCurMode(),aaflag > 0.5);
+    LICE_Line(dest,x1,y1,x2,y2,getCurColor(),(float) *m_gfx_a,getCurMode(),aaflag > 0.5);
     SetImageDirty(dest);
   }
   *m_gfx_x = xpos;
@@ -660,31 +662,31 @@ void eel_lice_state::gfx_lineto(EEL_F xpos, EEL_F ypos, EEL_F aaflag)
 
 void eel_lice_state::gfx_circle(float x, float y, float r, bool fill, bool aaflag)
 {
-  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest);
+  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest,"gfx_circle");
   if (!dest) return;
 
   if (LICE_FUNCTION_VALID(LICE_Circle) && LICE_FUNCTION_VALID(LICE_FillCircle))
   {
     if(fill)
-      LICE_FillCircle(dest, x, y, r, getCurColor(), *m_gfx_a, getCurMode(), aaflag);
+      LICE_FillCircle(dest, x, y, r, getCurColor(), (float) *m_gfx_a, getCurMode(), aaflag);
     else
-      LICE_Circle(dest, x, y, r, getCurColor(), *m_gfx_a, getCurMode(), aaflag);
+      LICE_Circle(dest, x, y, r, getCurColor(), (float) *m_gfx_a, getCurMode(), aaflag);
     SetImageDirty(dest);
   }
 }
 
 void eel_lice_state::gfx_rectto(EEL_F xpos, EEL_F ypos)
 {
-  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest);
+  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest,"gfx_rectto");
   if (!dest) return;
 
-  float x1=xpos,y1=ypos,x2=*m_gfx_x, y2=*m_gfx_y;
+  EEL_F x1=xpos,y1=ypos,x2=*m_gfx_x, y2=*m_gfx_y;
   if (x2<x1) { x1=x2; x2=xpos; }
   if (y2<y1) { y1=y2; y2=ypos; }
 
   if (LICE_FUNCTION_VALID(LICE_FillRect) && x2-x1 > 0.5 && y2-y1 > 0.5)
   {
-    LICE_FillRect(dest,(int)x1,(int)y1,(int)(x2-x1),(int)(y2-y1),getCurColor(),*m_gfx_a,getCurMode());
+    LICE_FillRect(dest,(int)x1,(int)y1,(int)(x2-x1),(int)(y2-y1),getCurColor(),(float)*m_gfx_a,getCurMode());
 
     SetImageDirty(dest);
   }
@@ -695,7 +697,7 @@ void eel_lice_state::gfx_rectto(EEL_F xpos, EEL_F ypos)
 
 void eel_lice_state::gfx_line(int np, EEL_F **parms)
 {
-  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest);
+  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest,"gfx_line");
   if (!dest) return;
 
   int x1=(int)floor(parms[0][0]),y1=(int)floor(parms[1][0]),x2=(int)floor(parms[2][0]), y2=(int)floor(parms[3][0]);
@@ -704,21 +706,21 @@ void eel_lice_state::gfx_line(int np, EEL_F **parms)
       LICE_FUNCTION_VALID(LICE_Line) && 
       LICE_FUNCTION_VALID(LICE_ClipLine) && LICE_ClipLine(&x1,&y1,&x2,&y2,0,0,LICE__GetWidth(dest),LICE__GetHeight(dest))) 
   {
-    LICE_Line(dest,x1,y1,x2,y2,getCurColor(),*m_gfx_a,getCurMode(),np< 5 || parms[4][0] > 0.5);
+    LICE_Line(dest,x1,y1,x2,y2,getCurColor(),(float)*m_gfx_a,getCurMode(),np< 5 || parms[4][0] > 0.5);
     SetImageDirty(dest);
   } 
 }
 
 void eel_lice_state::gfx_rect(int np, EEL_F **parms)
 {
-  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest);
+  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest,"gfx_rect");
   if (!dest) return;
 
   int x1=(int)floor(parms[0][0]),y1=(int)floor(parms[1][0]),w=(int)floor(parms[2][0]), h=(int)floor(parms[3][0]);
 
   if (LICE_FUNCTION_VALID(LICE_FillRect) && w>0 && h>0)
   {
-    LICE_FillRect(dest,x1,y1,w,h,getCurColor(),*m_gfx_a,getCurMode());
+    LICE_FillRect(dest,x1,y1,w,h,getCurColor(),(float)*m_gfx_a,getCurMode());
 
     SetImageDirty(dest);
   }
@@ -726,35 +728,35 @@ void eel_lice_state::gfx_rect(int np, EEL_F **parms)
 
 void eel_lice_state::gfx_roundrect(int np, EEL_F **parms)
 {
-  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest);
+  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest,"gfx_roundrect");
   if (!dest) return;
 
   const bool aa = np <= 5 || parms[5][0]>0.5;
 
   if (LICE_FUNCTION_VALID(LICE_RoundRect) && parms[2][0]>0 && parms[3][0]>0)
   {
-    LICE_RoundRect(dest, (float)parms[0][0], (float)parms[1][0], (float)parms[2][0], (float)parms[3][0], (float)parms[4][0], getCurColor(), *m_gfx_a, getCurMode(), aa);
+    LICE_RoundRect(dest, (float)parms[0][0], (float)parms[1][0], (float)parms[2][0], (float)parms[3][0], (int)parms[4][0], getCurColor(), (float)*m_gfx_a, getCurMode(), aa);
     SetImageDirty(dest);
   }
 }
 
 void eel_lice_state::gfx_arc(int np, EEL_F **parms)
 {
-  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest);
+  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest,"gfx_arc");
   if (!dest) return;
 
   const bool aa = np <= 5 || parms[5][0]>0.5;
 
   if (LICE_FUNCTION_VALID(LICE_Arc))
   {
-    LICE_Arc(dest, (float)parms[0][0], (float)parms[1][0], (float)parms[2][0], (float)parms[3][0], (float)parms[4][0], getCurColor(), *m_gfx_a, getCurMode(), aa);
+    LICE_Arc(dest, (float)parms[0][0], (float)parms[1][0], (float)parms[2][0], (float)parms[3][0], (float)parms[4][0], getCurColor(), (float)*m_gfx_a, getCurMode(), aa);
     SetImageDirty(dest);
   }
 }
 
 void eel_lice_state::gfx_grad_or_muladd_rect(int whichmode, int np, EEL_F **parms)
 {
-  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest);
+  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest,whichmode==0?"gfx_gradrect":"gfx_muladdrect");
   if (!dest) return;
 
   const int x1=(int)floor(parms[0][0]),y1=(int)floor(parms[1][0]),w=(int)floor(parms[2][0]), h=(int)floor(parms[3][0]);
@@ -763,9 +765,9 @@ void eel_lice_state::gfx_grad_or_muladd_rect(int whichmode, int np, EEL_F **parm
   {
     if (whichmode==0 && LICE_FUNCTION_VALID(LICE_GradRect) && np > 7)
     {
-      LICE_GradRect(dest,x1,y1,w,h,parms[4][0],parms[5][0],parms[6][0],parms[7][0],
-                                   np > 8 ? parms[8][0]:0.0, np > 9 ? parms[9][0]:0.0,  np > 10 ? parms[10][0]:0.0, np > 11 ? parms[11][0]:0.0,  
-                                   np > 12 ? parms[12][0]:0.0, np > 13 ? parms[13][0]:0.0,  np > 14 ? parms[14][0]:0.0, np > 15 ? parms[15][0]:0.0,  
+      LICE_GradRect(dest,x1,y1,w,h,(float)parms[4][0],(float)parms[5][0],(float)parms[6][0],(float)parms[7][0],
+                                   np > 8 ? (float)parms[8][0]:0.0f, np > 9 ? (float)parms[9][0]:0.0f,  np > 10 ? (float)parms[10][0]:0.0f, np > 11 ? (float)parms[11][0]:0.0f,  
+                                   np > 12 ? (float)parms[12][0]:0.0f, np > 13 ? (float)parms[13][0]:0.0f,  np > 14 ? (float)parms[14][0]:0.0f, np > 15 ? (float)parms[15][0]:0.0f,  
                                    getCurMode());
 
       SetImageDirty(dest);
@@ -773,8 +775,8 @@ void eel_lice_state::gfx_grad_or_muladd_rect(int whichmode, int np, EEL_F **parm
     else if (whichmode==1 && LICE_FUNCTION_VALID(LICE_MultiplyAddRect) && np > 6)
     {
       const double sc = 255.0;
-      LICE_MultiplyAddRect(dest,x1,y1,w,h,parms[4][0],parms[5][0],parms[6][0],np>7 ? parms[7][0]:1.0,
-        np > 8 ? sc*parms[8][0]:0.0, np > 9 ? sc*parms[9][0]:0.0,  np > 10 ? sc*parms[10][0]:0.0, np > 11 ? sc*parms[11][0]:0.0);
+      LICE_MultiplyAddRect(dest,x1,y1,w,h,(float)parms[4][0],(float)parms[5][0],(float)parms[6][0],np>7 ? (float)parms[7][0]:1.0f,
+        (float)(np > 8 ? sc*parms[8][0]:0.0), (float)(np > 9 ? sc*parms[9][0]:0.0),  (float)(np > 10 ? sc*parms[10][0]:0.0), (float)(np > 11 ? sc*parms[11][0]:0.0));
       SetImageDirty(dest);
     }
   }
@@ -784,7 +786,7 @@ void eel_lice_state::gfx_grad_or_muladd_rect(int whichmode, int np, EEL_F **parm
 
 void eel_lice_state::gfx_setpixel(EEL_F r, EEL_F g, EEL_F b)
 {
-  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest);
+  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest,"gfx_setpixel");
   if (!dest) return;
 
   int red=(int) (r*255.0);
@@ -796,7 +798,7 @@ void eel_lice_state::gfx_setpixel(EEL_F r, EEL_F g, EEL_F b)
 
   if (LICE_FUNCTION_VALID(LICE_PutPixel)) 
   {
-    LICE_PutPixel(dest,(int)*m_gfx_x, (int)*m_gfx_y,LICE_RGBA(red,green,blue,255),*m_gfx_a,getCurMode());
+    LICE_PutPixel(dest,(int)*m_gfx_x, (int)*m_gfx_y,LICE_RGBA(red,green,blue,255), (float)*m_gfx_a,getCurMode());
     SetImageDirty(dest);
   }
 }
@@ -810,7 +812,7 @@ void eel_lice_state::gfx_getimgdim(EEL_F img, EEL_F *w, EEL_F *h)
 #endif
     ) return;
 
-  LICE_IBitmap *bm=GetImageForIndex(img); 
+  LICE_IBitmap *bm=GetImageForIndex(img,"gfx_getimgdim"); 
   if (bm)
   {
     *w=LICE__GetWidth(bm);
@@ -882,7 +884,7 @@ EEL_F eel_lice_state::gfx_setimgdim(int img, EEL_F *w, EEL_F *h)
 
 void eel_lice_state::gfx_blurto(EEL_F x, EEL_F y)
 {
-  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest);
+  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest,"gfx_blurto");
   if (!dest
 #ifdef DYNAMIC_LICE
     ||!LICE_Blur
@@ -912,7 +914,7 @@ static bool CoordsSrcDestOverlap(EEL_F *coords)
 
 void eel_lice_state::gfx_transformblit(EEL_F **parms, int div_w, int div_h, EEL_F *tab)
 {
-  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest);
+  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest,"gfx_transformblit");
 
   if (!dest
 #ifdef DYNAMIC_LICE
@@ -920,7 +922,7 @@ void eel_lice_state::gfx_transformblit(EEL_F **parms, int div_w, int div_h, EEL_
 #endif 
     ) return;
 
-  LICE_IBitmap *bm=GetImageForIndex(parms[0][0]); 
+  LICE_IBitmap *bm=GetImageForIndex(parms[0][0],"gfx_transformblit:src"); 
   if (!bm) return;
 
   const int bmw=LICE__GetWidth(bm);
@@ -937,11 +939,11 @@ void eel_lice_state::gfx_transformblit(EEL_F **parms, int div_w, int div_h, EEL_
       LICE__resize(bm=m_framebuffer_extra,bmw,bmh);
       LICE_ScaledBlit(bm,dest, // copy the entire image
         0,0,bmw,bmh,
-        0,0,bmw,bmh,
+        0.0f,0.0f,(float)bmw,(float)bmh,
         1.0f,LICE_BLIT_MODE_COPY);      
     }
   }
-  LICE_TransformBlit2(dest,bm,(int)floor(parms[1][0]),(int)floor(parms[2][0]),(int)floor(parms[3][0]),(int)floor(parms[4][0]),tab,div_w,div_h,*m_gfx_a,getCurModeForBlit(isFromFB));
+  LICE_TransformBlit2(dest,bm,(int)floor(parms[1][0]),(int)floor(parms[2][0]),(int)floor(parms[3][0]),(int)floor(parms[4][0]),tab,div_w,div_h, (float)*m_gfx_a,getCurModeForBlit(isFromFB));
 
   SetImageDirty(dest);
 }
@@ -955,7 +957,7 @@ EEL_F eel_lice_state::gfx_setfont(void *opaque, int np, EEL_F **parms)
     gfxFontStruct *s = m_gfx_fonts.Get()+a;
     if (np>1 && LICE_FUNCTION_VALID(LICE_CreateFont) && LICE_FUNCTION_VALID(LICE__SetFromHFont))
     {
-      const int sz=np>2 ? (int)parms[2][0] : 10.0;
+      const int sz=np>2 ? (int)parms[2][0] : 10;
       
       bool doCreate=false;
       int fontflag=0;
@@ -964,6 +966,9 @@ EEL_F eel_lice_state::gfx_setfont(void *opaque, int np, EEL_F **parms)
         EEL_STRING_MUTEXLOCK_SCOPE
       
         const char *face=EEL_STRING_GET_FOR_INDEX(parms[1][0],NULL);
+        #ifdef EEL_STRING_DEBUGOUT
+          if (!face) EEL_STRING_DEBUGOUT("gfx_setfont: invalid string identifier %f",parms[1][0]);
+        #endif
         if (!face || !*face) face="Arial";
 
         {
@@ -1032,6 +1037,9 @@ EEL_F eel_lice_state::gfx_setfont(void *opaque, int np, EEL_F **parms)
     }
     // try to init this font
   }
+  #ifdef EEL_STRING_DEBUGOUT
+  if (a >= m_gfx_fonts.GetSize()) EEL_STRING_DEBUGOUT("gfx_setfont: invalid font %d specified",a);
+  #endif
 
   if (a<0||a>=m_gfx_fonts.GetSize()||!m_gfx_fonts.Get()[a].font)
   {
@@ -1044,7 +1052,7 @@ EEL_F eel_lice_state::gfx_setfont(void *opaque, int np, EEL_F **parms)
 
 void eel_lice_state::gfx_blitext2(int np, EEL_F **parms, int blitmode)
 {
-  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest);
+  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest,"gfx_blitext2");
 
   if (!dest
 #ifdef DYNAMIC_LICE
@@ -1052,7 +1060,7 @@ void eel_lice_state::gfx_blitext2(int np, EEL_F **parms, int blitmode)
 #endif 
     ) return;
 
-  LICE_IBitmap *bm=GetImageForIndex(parms[0][0]); 
+  LICE_IBitmap *bm=GetImageForIndex(parms[0][0],"gfx_blitext2:src"); 
   if (!bm) return;
 
   const int bmw=LICE__GetWidth(bm);
@@ -1087,8 +1095,8 @@ void eel_lice_state::gfx_blitext2(int np, EEL_F **parms, int blitmode)
     
       LICE__resize(bm=m_framebuffer_extra,bmw,bmh);
       LICE_ScaledBlit(bm,dest, // copy the source portion
-        coords[0],coords[1],coords[2],coords[3],
-        coords[0],coords[1],coords[2],coords[3],
+        (int)coords[0],(int)coords[1],(int)coords[2],(int)coords[3],
+        (float)coords[0],(float)coords[1],(float)coords[2],(float)coords[3],
         1.0f,LICE_BLIT_MODE_COPY);      
     }
   }
@@ -1096,32 +1104,35 @@ void eel_lice_state::gfx_blitext2(int np, EEL_F **parms, int blitmode)
   if (blitmode==1)
   {
     if (LICE_FUNCTION_VALID(LICE_DeltaBlit))
-      LICE_DeltaBlit(dest,bm,coords[4],coords[5],coords[6],coords[7],coords[0],coords[1],coords[2],coords[3],
-                np > 9 ? parms[9][0]:1.0, // dsdx
-                np > 10 ? parms[10][0]:0.0, // dtdx
-                np > 11 ? parms[11][0]:0.0, // dsdy
-                np > 12 ? parms[12][0]:1.0, // dtdy
-                np > 13 ? parms[13][0]:0.0, // dsdxdy
-                np > 14 ? parms[14][0]:0.0, // dtdxdy
-                true,*m_gfx_a,getCurModeForBlit(isFromFB));
+      LICE_DeltaBlit(dest,bm,(int)coords[4],(int)coords[5],(int)coords[6],(int)coords[7],
+                (float)coords[0],(float)coords[1],(float)coords[2],(float)coords[3],
+                np > 9 ? (float)parms[9][0]:1.0f, // dsdx
+                np > 10 ? (float)parms[10][0]:0.0f, // dtdx
+                np > 11 ? (float)parms[11][0]:0.0f, // dsdy
+                np > 12 ? (float)parms[12][0]:1.0f, // dtdy
+                np > 13 ? (float)parms[13][0]:0.0f, // dsdxdy
+                np > 14 ? (float)parms[14][0]:0.0f, // dtdxdy
+                true, (float)*m_gfx_a,getCurModeForBlit(isFromFB));
   }
   else if (fabs(angle)>0.000000001)
   {
-    LICE_RotatedBlit(dest,bm,coords[4],coords[5],coords[6],coords[7],coords[0],coords[1],coords[2],coords[3],
-        angle,true,*m_gfx_a,getCurModeForBlit(isFromFB),
-       np > 9 ? parms[9][0] : 0.0,
-       np > 10 ? parms[10][0] : 0.0);
+    LICE_RotatedBlit(dest,bm,(int)coords[4],(int)coords[5],(int)coords[6],(int)coords[7],
+      (float)coords[0],(float)coords[1],(float)coords[2],(float)coords[3],
+      (float)angle,true, (float)*m_gfx_a,getCurModeForBlit(isFromFB),
+       np > 9 ? (float)parms[9][0] : 0.0f,
+       np > 10 ? (float)parms[10][0] : 0.0f);
   }
   else
   {
-    LICE_ScaledBlit(dest,bm,coords[4],coords[5],coords[6],coords[7],coords[0],coords[1],coords[2],coords[3],*m_gfx_a,getCurModeForBlit(isFromFB));
+    LICE_ScaledBlit(dest,bm,(int)coords[4],(int)coords[5],(int)coords[6],(int)coords[7],
+      (float)coords[0],(float)coords[1],(float)coords[2],(float)coords[3], (float)*m_gfx_a,getCurModeForBlit(isFromFB));
   }
   SetImageDirty(dest);
 }
 
 void eel_lice_state::gfx_blitext(EEL_F img, EEL_F *coords, EEL_F angle)
 {
-  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest);
+  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest,"gfx_blitext");
 
   if (!dest
 #ifdef DYNAMIC_LICE
@@ -1129,7 +1140,7 @@ void eel_lice_state::gfx_blitext(EEL_F img, EEL_F *coords, EEL_F angle)
 #endif 
     ) return;
 
-  LICE_IBitmap *bm=GetImageForIndex(img); 
+  LICE_IBitmap *bm=GetImageForIndex(img,"gfx_blitext:src");
   if (!bm) return;
   
   const bool isFromFB = bm == m_framebuffer;
@@ -1145,34 +1156,37 @@ void eel_lice_state::gfx_blitext(EEL_F img, EEL_F *coords, EEL_F angle)
     
       LICE__resize(bm=m_framebuffer_extra,bmw,bmh);
       LICE_ScaledBlit(bm,dest, // copy the source portion
-        coords[0],coords[1],coords[2],coords[3],
-        coords[0],coords[1],coords[2],coords[3],
+        (int)coords[0],(int)coords[1],(int)coords[2],(int)coords[3],
+        (float)coords[0],(float)coords[1],(float)coords[2],(float)coords[3],
         1.0f,LICE_BLIT_MODE_COPY);      
     }
   }
   
   if (fabs(angle)>0.000000001)
   {
-    LICE_RotatedBlit(dest,bm,coords[4],coords[5],coords[6],coords[7],coords[0],coords[1],coords[2],coords[3],angle,true,*m_gfx_a,getCurModeForBlit(isFromFB),
-        coords[8],coords[9]);
+    LICE_RotatedBlit(dest,bm,(int)coords[4],(int)coords[5],(int)coords[6],(int)coords[7],
+      (float)coords[0],(float)coords[1],(float)coords[2],(float)coords[3],(float)angle,
+      true, (float)*m_gfx_a,getCurModeForBlit(isFromFB),
+          (float)coords[8],(float)coords[9]);
   }
   else
   {
-    LICE_ScaledBlit(dest,bm,coords[4],coords[5],coords[6],coords[7],coords[0],coords[1],coords[2],coords[3],*m_gfx_a,getCurModeForBlit(isFromFB));
+    LICE_ScaledBlit(dest,bm,(int)coords[4],(int)coords[5],(int)coords[6],(int)coords[7],
+      (float)coords[0],(float)coords[1],(float)coords[2],(float)coords[3], (float)*m_gfx_a,getCurModeForBlit(isFromFB));
   }
   SetImageDirty(dest);
 }
 
 void eel_lice_state::gfx_blit(EEL_F img, EEL_F scale, EEL_F rotate)
 {
-  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest);
+  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest,"gfx_blit");
   if (!dest
 #ifdef DYNAMIC_LICE
     ||!LICE_ScaledBlit || !LICE_RotatedBlit||!LICE__GetWidth||!LICE__GetHeight
 #endif
     ) return;
 
-  LICE_IBitmap *bm=GetImageForIndex(img);
+  LICE_IBitmap *bm=GetImageForIndex(img,"gfx_blit:src");
   
   if (!bm) return;
   
@@ -1182,12 +1196,12 @@ void eel_lice_state::gfx_blit(EEL_F img, EEL_F scale, EEL_F rotate)
   int bmh=LICE__GetHeight(bm);
   if (fabs(rotate)>0.000000001)
   {
-    LICE_RotatedBlit(dest,bm,*m_gfx_x,*m_gfx_y,bmw*scale,bmh*scale,0,0,bmw,bmh,rotate,true,*m_gfx_a,getCurModeForBlit(isFromFB),
-        0,0);
+    LICE_RotatedBlit(dest,bm,(int)*m_gfx_x,(int)*m_gfx_y,(int) (bmw*scale),(int) (bmh*scale),0.0f,0.0f,(float)bmw,(float)bmh,(float)rotate,true, (float)*m_gfx_a,getCurModeForBlit(isFromFB),
+        0.0f,0.0f);
   }
   else
   {
-    LICE_ScaledBlit(dest,bm,*m_gfx_x,*m_gfx_y,bmw*scale,bmh*scale,0,0,bmw,bmh,*m_gfx_a,getCurModeForBlit(isFromFB));
+    LICE_ScaledBlit(dest,bm,(int)*m_gfx_x,(int)*m_gfx_y,(int) (bmw*scale),(int) (bmh*scale),0.0f,0.0f,(float)bmw,(float)bmh, (float)*m_gfx_a,getCurModeForBlit(isFromFB));
   }
   SetImageDirty(dest);
 }
@@ -1195,7 +1209,7 @@ void eel_lice_state::gfx_blit(EEL_F img, EEL_F scale, EEL_F rotate)
 
 void eel_lice_state::gfx_getpixel(EEL_F *r, EEL_F *g, EEL_F *b)
 {
-  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest);
+  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest,"gfx_getpixel");
   if (!dest) return;
 
   int ret=LICE_FUNCTION_VALID(LICE_GetPixel)?LICE_GetPixel(dest,(int)*m_gfx_x, (int)*m_gfx_y):0;
@@ -1287,7 +1301,7 @@ static int __drawTextWithFont(LICE_IBitmap *dest, int xpos, int ypos, LICE_IFont
 
 void eel_lice_state::gfx_drawstr(void *opaque, EEL_F ch, int formatmode, int nfmtparms, EEL_F **fmtparms)// formatmode=1 for format, 2 for purely measure no format
 {
-  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest);
+  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest,formatmode==1?"gfx_printf":formatmode==2?"gfx_measurestr":"gfx_drawstr");
   if (!dest) return;
 
 #ifdef DYNAMIC_LICE
@@ -1298,6 +1312,9 @@ void eel_lice_state::gfx_drawstr(void *opaque, EEL_F ch, int formatmode, int nfm
 
   WDL_FastString *fs=NULL;
   const char *s=EEL_STRING_GET_FOR_INDEX(ch,&fs);
+  #ifdef EEL_STRING_DEBUGOUT
+    if (!s) EEL_STRING_DEBUGOUT("gfx_%s: invalid string identifier %f",formatmode==1?"printf":formatmode==2?"measurestr":"drawstr",ch);
+  #endif
   char buf[4096];
   int s_len=0;
   if (!s) 
@@ -1335,7 +1352,7 @@ void eel_lice_state::gfx_drawstr(void *opaque, EEL_F ch, int formatmode, int nfm
 
 void eel_lice_state::gfx_drawchar(EEL_F ch)
 {
-  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest);
+  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest,"gfx_drawchar");
   if (!dest) return;
 
   int a=(int)(ch+0.5);
@@ -1352,7 +1369,7 @@ void eel_lice_state::gfx_drawchar(EEL_F ch)
 
 void eel_lice_state::gfx_drawnumber(EEL_F n, EEL_F ndigits)
 {
-  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest);
+  LICE_IBitmap *dest = GetImageForIndex(*m_gfx_dest,"gfx_drawnumber");
   if (!dest) return;
 
   char buf[512];
@@ -1362,7 +1379,7 @@ void eel_lice_state::gfx_drawnumber(EEL_F n, EEL_F ndigits)
   snprintf(buf,sizeof(buf),"%.*f",a,n);
 
   *m_gfx_x = __drawTextWithFont(dest,(int)floor(*m_gfx_x),(int)floor(*m_gfx_y),
-                           GetActiveFont(),buf,strlen(buf),
+                           GetActiveFont(),buf,(int)strlen(buf),
                            getCurColor(),getCurMode(),(float)*m_gfx_a, NULL,NULL);
 
   SetImageDirty(dest);
@@ -1390,7 +1407,7 @@ int eel_lice_state::setup_frame(HWND hwnd, RECT r)
   
   if (*m_gfx_clear > -1.0)
   {
-    int a=*m_gfx_clear;
+    int a=(int)*m_gfx_clear;
     int r=a&0xff;
     int g=(a>>8)&0xff;
     int b=(a>>16)&0xff;
@@ -1410,7 +1427,7 @@ int eel_lice_state::setup_frame(HWND hwnd, RECT r)
     if (GetAsyncKeyState(VK_RBUTTON)&0x8000) vflags|=2;
     if (GetAsyncKeyState(VK_MBUTTON)&0x8000) vflags|=64;
   }
-  if (hasCap||GetFocus()==hwnd)
+  if (hasCap||(m_has_had_getch && GetFocus()==hwnd))
   {
     if (GetAsyncKeyState(VK_CONTROL)&0x8000) vflags|=4;
     if (GetAsyncKeyState(VK_SHIFT)&0x8000) vflags|=8;
@@ -1504,7 +1521,7 @@ static EEL_F * NSEEL_CGEN_CALL _gfx_update(void *opaque, EEL_F *n)
 	      TranslateMessage(&msg);
 	      DispatchMessage(&msg);
       }
-#elif defined(__APPLE__)
+#else
       void SWELL_RunEvents();
       SWELL_RunEvents();
 #endif
@@ -1525,6 +1542,7 @@ static EEL_F NSEEL_CGEN_CALL _gfx_getchar(void *opaque, EEL_F *p)
   eel_lice_state *ctx=EEL_LICE_GET_CONTEXT(opaque);
   if (ctx)
   {
+    ctx->m_has_had_getch=true;
     if (*p >= 2.0)
     {
       int x;
@@ -1766,6 +1784,9 @@ static EEL_F NSEEL_CGEN_CALL _gfx_init(void *opaque, INT_PTR np, EEL_F **parms)
     {
       EEL_STRING_MUTEXLOCK_SCOPE
       const char *title=EEL_STRING_GET_FOR_INDEX(parms[0][0],NULL);
+      #ifdef EEL_STRING_DEBUGOUT
+        if (!title) EEL_STRING_DEBUGOUT("gfx_init: invalid string identifier %f",parms[0][0]);
+      #endif
       if (title&&*title) SetWindowText(ctx->hwnd_standalone,title);
     }
 
@@ -1857,9 +1878,9 @@ LRESULT WINAPI eel_lice_wndproc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
         eel_lice_state *ctx=(eel_lice_state*)GetWindowLongPtr(hwnd,GWLP_USERDATA);
 
         bool hadAltAdj=false;
-        int a=eel_lice_key_xlate(uMsg,wParam,lParam, &hadAltAdj);
+        int a=eel_lice_key_xlate(uMsg,(int)wParam,(int)lParam, &hadAltAdj);
 #ifdef _WIN32
-        if (!a && (uMsg == WM_KEYUP || uMsg == WM_SYSKEYUP) && wParam >= 'A' && wParam <= 'Z') a=wParam + 'a' - 'A';
+        if (!a && (uMsg == WM_KEYUP || uMsg == WM_SYSKEYUP) && wParam >= 'A' && wParam <= 'Z') a=(int)wParam + 'a' - 'A';
 #endif
         const int mask = hadAltAdj ? ~256 : ~0;
 

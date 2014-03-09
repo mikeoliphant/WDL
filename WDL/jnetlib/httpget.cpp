@@ -148,7 +148,7 @@ void JNL_HTTPGet::connect(const char *url, int ver, const char *requestmethod)
     return;
   }
 
-  int sendbufferlen=0;
+  size_t sendbufferlen=0;
 
   if (!m_http_proxyhost || !m_http_proxyhost[0])
   {
@@ -207,7 +207,7 @@ void JNL_HTTPGet::connect(const char *url, int ver, const char *requestmethod)
 
   int a=m_recvbufsize;
   if (a < 4096) a=4096;
-  m_con=new JNL_Connection(m_dns,strlen(str)+4,a);
+  m_con=new JNL_Connection(m_dns,(int)strlen(str)+4,a);
   if (m_con)
   {
     if (!m_http_proxyhost || !m_http_proxyhost[0])
@@ -285,24 +285,25 @@ const char *JNL_HTTPGet::getallheaders()
 
 const char *JNL_HTTPGet::getheader(const char *headername)
 {
-  char *ret=NULL;
-  if (strlen(headername)<1||!m_recvheaders) return NULL;
-  char *buf=(char*)malloc(strlen(headername)+2);
-  strcpy(buf,headername);
-  if (buf[strlen(buf)-1]!=':') strcat(buf,":");
-  char *p=m_recvheaders;
+  if (!headername || !m_recvheaders) return NULL;
+
+  size_t headername_len = strlen(headername);
+  if (headername_len<1) return NULL;
+
+  if (headername[headername_len - 1] == ':') headername_len--;
+
+  const char *p=m_recvheaders;
   while (*p)
   {
-    if (!strnicmp(buf,p,strlen(buf)))
+    if (!strnicmp(headername,p,headername_len) && p[headername_len] == ':')
     {
-      ret=p+strlen(buf);
-      while (*ret == ' ') ret++;
-      break;
+      p += headername_len + 1;
+      while (*p == ' ') p++;
+      return p;
     }
     p+=strlen(p)+1;
   }
-  free(buf);
-  return ret;
+  return NULL;
 }
 
 int JNL_HTTPGet::run()
@@ -379,7 +380,7 @@ run_again:
       if (!buf[0]) { m_http_state=3; break; }
       if (!m_recvheaders)
       {
-        m_recvheaders_size=strlen(buf)+1;
+        m_recvheaders_size=(int)strlen(buf)+1;
         m_recvheaders=(char*)malloc(m_recvheaders_size+1);
         if (m_recvheaders)
         {
@@ -390,7 +391,7 @@ run_again:
       else
       {
         int oldsize=m_recvheaders_size;
-        m_recvheaders_size+=strlen(buf)+1;
+        m_recvheaders_size+=(int)strlen(buf)+1;
         char *n=(char*)malloc(m_recvheaders_size+1);
         if (n)
         {

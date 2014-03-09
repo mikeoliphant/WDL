@@ -68,6 +68,7 @@ class eelScriptInst {
     eelScriptInst();
     virtual ~eelScriptInst();
 
+    NSEEL_CODEHANDLE compile_code(const char *code, const char **err);
     int runcode(const char *code, int showerr, const char *showerrfn, bool canfree, bool ignoreEndOfInputChk, bool doExec);
     int loadfile(const char *fn, const char *callerfn, bool allowstdin);
 
@@ -144,10 +145,10 @@ class eelScriptInst {
     virtual char *evalCacheGet(const char *str, NSEEL_CODEHANDLE *ch);
     virtual void evalCacheDispose(char *key, NSEEL_CODEHANDLE ch);
     WDL_Queue m_defer_eval, m_atexit_eval;
-    void runCodeQ(WDL_Queue *q);
+    void runCodeQ(WDL_Queue *q, const char *fname);
     void runAtExitCode()
     {
-      runCodeQ(&m_atexit_eval);
+      runCodeQ(&m_atexit_eval,"atexit");
       m_atexit_eval.Clear(); // make sure nothing gets added in atexit(), in case the user called runAtExitCode before destroying
     }
 #endif
@@ -225,7 +226,20 @@ static EEL_F NSEEL_CGEN_CALL _eel_defer(void *opaque, EEL_F *s)
       inst->m_defer_eval.Add(str,strlen(str)+1);
       return 1.0;
     }
+#ifdef EEL_STRING_DEBUGOUT
+    EEL_STRING_DEBUGOUT("defer(): too much defer() code already added, ignoring");
+#endif
   }
+#ifdef EEL_STRING_DEBUGOUT
+  else if (!str)
+  {
+    EEL_STRING_DEBUGOUT("defer(): invalid string identifier specified %f",*s);
+  }
+  else if (*s < EEL_STRING_MAX_USER_STRINGS)
+  {
+    EEL_STRING_DEBUGOUT("defer(): user string identifier %f specified but not allowed",*s);
+  }
+#endif
   return 0.0;
 }
 static EEL_F NSEEL_CGEN_CALL _eel_atexit(void *opaque, EEL_F *s)
@@ -240,7 +254,20 @@ static EEL_F NSEEL_CGEN_CALL _eel_atexit(void *opaque, EEL_F *s)
       inst->m_atexit_eval.Add(str,strlen(str)+1);
       return 1.0;
     }
+#ifdef EEL_STRING_DEBUGOUT
+    EEL_STRING_DEBUGOUT("atexit(): too much atexit() code already added, ignoring");
+#endif
   }
+#ifdef EEL_STRING_DEBUGOUT
+  else if (!str)
+  {
+    EEL_STRING_DEBUGOUT("atexit(): invalid string identifier specified %f",*s);
+  }
+  else if (*s < EEL_STRING_MAX_USER_STRINGS)
+  {
+    EEL_STRING_DEBUGOUT("atexit(): user string identifier %f specified but not allowed",*s);
+  }
+#endif
   return 0.0;
 }
 #endif
@@ -313,6 +340,24 @@ bool eelScriptInst::GetFilenameForParameter(EEL_F idx, WDL_FastString *fs, int i
   if (!fmt) return false;
   fs->Set(fmt);
   return translateFilename(fs,iswrite?"w":"r");
+}
+
+NSEEL_CODEHANDLE eelScriptInst::compile_code(const char *code, const char **err)
+{
+  if (!m_vm)
+  {
+    *err = "EEL VM not initialized";
+    return NULL;
+  }
+  NSEEL_CODEHANDLE ch = NSEEL_code_compile_ex(m_vm, code, 0, NSEEL_CODE_COMPILE_FLAG_COMMONFUNCS);
+  if (ch)
+  {
+    m_string_context->update_named_vars(m_vm);
+    m_code_freelist.Add((void*)ch);
+    return ch;
+  }
+  *err = NSEEL_code_getcodeerror(m_vm);
+  return NULL;
 }
 
 int eelScriptInst::runcode(const char *codeptr, int showerr, const char *showerrfn, bool canfree, bool ignoreEndOfInputChk, bool doExec)
@@ -571,7 +616,7 @@ bool eelScriptInst::has_deferred()
 }
 
 #ifndef EELSCRIPT_NO_EVAL
-void eelScriptInst::runCodeQ(WDL_Queue *q)
+void eelScriptInst::runCodeQ(WDL_Queue *q, const char *callername)
 {
   const int endptr = q->Available();
   int offs = 0;
@@ -590,6 +635,11 @@ void eelScriptInst::runCodeQ(WDL_Queue *q)
     if (!ch)
     {
       free(sv);
+#ifdef EEL_STRING_DEBUGOUT
+      const char *err = NSEEL_code_getcodeerror(m_vm);
+      void *opaque = (void *)this;
+      if (err) EEL_STRING_DEBUGOUT("%s: error in code: %s",callername,err);
+#endif
     }
     else
     {
@@ -606,7 +656,7 @@ bool eelScriptInst::run_deferred()
 #ifndef EELSCRIPT_NO_EVAL
   if (!m_defer_eval.Available()||!m_vm) return false;
 
-  runCodeQ(&m_defer_eval);
+  runCodeQ(&m_defer_eval,"defer");
   m_defer_eval.Compact();
   return m_defer_eval.Available()>0;
 #else
