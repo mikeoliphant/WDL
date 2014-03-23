@@ -517,6 +517,7 @@ void LICE_FillCircle(LICE_IBitmap* dest, float cx, float cy, float r, LICE_pixel
   if (!dest) return;
   if (dest->isFlipped()) cy=dest->getHeight()-1-cy;
 
+  if (mode & LICE_BLIT_USE_ALPHA) alpha *= LICE_GETA(color)/255.0f;
   const int ia = (int) (alpha*256.0f);
   if (!ia) return;
   const int w = dest->getWidth(), h = dest->getHeight();
