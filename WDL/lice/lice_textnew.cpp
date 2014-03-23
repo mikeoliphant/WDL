@@ -277,7 +277,7 @@ bool LICE_CachedFont::RenderGlyph(unsigned short idx) // return TRUE if ok
           for (;x<r.right;x++)
           {
             unsigned char v=((unsigned char*)(srcbuf+x))[LICE_PIXEL_R];
-            if (v) max_x=x;
+            if (v) max_x=x+1;
             *destbuf++ = 255-v;
           }
         }
@@ -287,7 +287,7 @@ bool LICE_CachedFont::RenderGlyph(unsigned short idx) // return TRUE if ok
           for (;x<r.right;x++)
           {
             unsigned char v=((unsigned char*)(srcbuf+x))[LICE_PIXEL_R];
-            if (v) max_x=x;
+            if (v) max_x=x+1;
             *destbuf++ = v;
           }
         }
@@ -295,7 +295,7 @@ bool LICE_CachedFont::RenderGlyph(unsigned short idx) // return TRUE if ok
       }
       destbuf -= r.right*r.bottom;
 
-      if (max_x < r.right - 1) // only resize down if more than 1px
+      if (max_x < r.right)
       {
         const unsigned char *rdptr=destbuf;
         // trim down destbuf
@@ -897,15 +897,19 @@ finish_up_native_render:
         {
           if (m_flags&LICE_FONT_FLAG_VERTICAL) 
           {
+            const int yext = ypos + ent->height;
             ypos += ent->advance;
             if (xpos+ent->width>max_xpos) max_xpos=xpos+ent->width;
             if (ypos>max_ypos) max_ypos=ypos;
+            if (yext>max_ypos) max_ypos=yext;
           }
           else
           {
+            const int xext = xpos + ent->width;
             xpos += ent->advance;
             if (ypos+ent->height>max_ypos) max_ypos=ypos+ent->height;         
             if (xpos>max_xpos) max_xpos=xpos;
+            if (xext>max_xpos) max_xpos=xext;
           }
         }
       }
