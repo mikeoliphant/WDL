@@ -1082,7 +1082,6 @@ int main(int argc, char **argv)
   }
 
   WDL_ImpulseBuffer imp;
-  imp.nch=1;
   memset(imp.impulses[0].Resize(implen),0,implen*sizeof(WDL_FFT_REAL));
   imp.impulses[0].Get()[oneoffs]=1.0;
 
