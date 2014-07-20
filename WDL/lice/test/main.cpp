@@ -11,7 +11,10 @@
 #include <math.h>
 #include <stdio.h>
 
+#ifndef _WIN32
 #include <sys/time.h>
+#endif
+
 static double gettm()
 {
 #ifndef _WIN32
@@ -59,7 +62,7 @@ static WDL_VideoDecode *m_decoder;
 
 #define NUM_EFFECTS 25
 
-char *effect_names[NUM_EFFECTS] =
+const char *effect_names[NUM_EFFECTS] =
 {
   "Rotated + Scaled blit",
   "Simple alpha blit",
@@ -121,15 +124,18 @@ static void DoPaint(HWND hwndDlg, HDC dc)
   int x=rand()%(r.right+300)-150;
   int y=rand()%(r.bottom+300)-150;
 
+  static int frame_cnt;
   static int s_preveff = -1;
   if (m_effect != s_preveff)
   {
+    frame_cnt=0;
     s_preveff = m_effect;
     LICE_Clear(framebuffer, 0);
   }
 
   static MTRand s_rng;
-  
+  double t2=gettm();
+
   switch(m_effect)
   {
     case 23:
@@ -266,22 +272,22 @@ static void DoPaint(HWND hwndDlg, HDC dc)
       bool aa = true;
       float maxsegmentpx = 0.0f;
 
-      x0 = w*rand()/RAND_MAX;
-      y0 = h*rand()/RAND_MAX;
-      x1 = w*rand()/RAND_MAX;
-      y1 = h*rand()/RAND_MAX;
-      x2 = w*rand()/RAND_MAX;
-      y2 = h*rand()/RAND_MAX;
+      x0 = w*(double)rand()/RAND_MAX;
+      y0 = h*(double)rand()/RAND_MAX;
+      x1 = w*(double)rand()/RAND_MAX;
+      y1 = h*(double)rand()/RAND_MAX;
+      x2 = w*(double)rand()/RAND_MAX;
+      y2 = h*(double)rand()/RAND_MAX;
       LICE_DrawQBezier(framebuffer, x0, y0, x1, y1, x2, y2, LICE_RGBA(255,0,0,255), 1.0f, LICE_BLIT_MODE_COPY, aa, maxsegmentpx);
 
-      x0 = w*rand()/RAND_MAX;
-      y0 = h*rand()/RAND_MAX;
-      x1 = w*rand()/RAND_MAX;
-      y1 = h*rand()/RAND_MAX;
-      x2 = w*rand()/RAND_MAX;
-      y2 = h*rand()/RAND_MAX;
-      x3 = w*rand()/RAND_MAX;
-      y3 = h*rand()/RAND_MAX;
+      x0 = w*(double)rand()/RAND_MAX;
+      y0 = h*(double)rand()/RAND_MAX;
+      x1 = w*(double)rand()/RAND_MAX;
+      y1 = h*(double)rand()/RAND_MAX;
+      x2 = w*(double)rand()/RAND_MAX;
+      y2 = h*(double)rand()/RAND_MAX;
+      x3 = w*(double)rand()/RAND_MAX;
+      y3 = h*(double)rand()/RAND_MAX;
       LICE_DrawCBezier(framebuffer, x0, y0, x1, y1, x2, y2, x3, y3, LICE_RGBA(0,255,0,255), 1.0f, LICE_BLIT_MODE_COPY, aa, maxsegmentpx);
     }
     break;
@@ -733,7 +739,7 @@ static void DoPaint(HWND hwndDlg, HDC dc)
     {
       int x;
       static double a;
-      double sc=sin(a)*0.024;
+      double sc=sin(a)*0.24;
       a+=0.03;
       for (x = 0; x < 10000; x ++)
         LICE_PutPixel(framebuffer,rand()%framebuffer->getWidth(),rand()%framebuffer->getHeight(),LICE_RGBA(255,255,255,255),sc,LICE_BLIT_MODE_ADD);
@@ -883,6 +889,7 @@ static void DoPaint(HWND hwndDlg, HDC dc)
   {
     LICE_ScaledBlit(framebuffer,jpg,0,0,framebuffer->getWidth(),framebuffer->getHeight(),0,0,jpg->getWidth(),jpg->getHeight(),0.5,LICE_BLIT_MODE_COPY);
   }
+  t2 = gettm()-t2;
   
   m_frame_cnt++;
   
@@ -900,13 +907,18 @@ static void DoPaint(HWND hwndDlg, HDC dc)
   
   BitBlt(dc,r.left,r.top,framebuffer->getWidth(),framebuffer->getHeight(),framebuffer->getDC(),0,0,SRCCOPY);
   //      bmp->blitToDC(dc, NULL, 0, 0);
-
-  static double ac,stt;
   t1 = gettm()-t1;
+
+  static double ac,stt,ac2;
+
+  if (!frame_cnt++)
+  {
+    ac=ac2=0;
+    stt=gettm();
+  }
   ac+=t1;
-  static int cnt;
-  if (!cnt++) stt=gettm();
-  sprintf(g_status,"blit = %f, %f %dx%d @ %ffps\n",t1,ac/cnt,framebuffer->getWidth(),framebuffer->getHeight(),cnt/(gettm()-stt));
+  ac2+=t2;
+  sprintf(g_status,"blit = %f/%f, %f/%f %dx%d @ %ffps\n",t1,t2,ac/frame_cnt,ac2/frame_cnt,framebuffer->getWidth(),framebuffer->getHeight(),frame_cnt/(gettm()-stt));
 
 #if 0
   if (GetAsyncKeyState(VK_SHIFT)&0x8000)
@@ -975,11 +987,15 @@ WDL_DLGRET WINAPI dlgProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
     bmp = LICE_LoadPNGFromResource(g_hInstance, IDC_PNG1);
     icon = LICE_LoadIconFromResource(g_hInstance, IDI_MAIN, 0);
 #else
-//      SWELL_SetViewGL(GetDlgItem(hwndDlg,IDC_RECT),true);
+    bmp = LICE_LoadPNGFromNamedResource("image.png");
+
+      
+    // uncomment if you want to try GL blits:
+    //   SWELL_SetViewGL(GetDlgItem(hwndDlg,IDC_RECT),true);
     SendMessage(hwndDlg,WM_SIZE,0,0);
 #endif     
     
-    SetTimer(hwndDlg,1,1000/60,NULL);
+    SetTimer(hwndDlg,1,1,NULL);
     {
       int x;
       for (x = 0; x < NUM_EFFECTS; x ++)
