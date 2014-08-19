@@ -137,7 +137,8 @@ SWELL_API_DEFINE(BOOL, SWELL_PtInRect,(RECT *r, POINT p))
 
 /*
 ** ShellExecute(): 
-** NOTE: currently action is ignored, and it only works on content1 being a URL beginning with http://.
+** NOTE: currently action is ignored, and it only works on content1 being an app, an URL beginning with http://,
+**       "notepad.exe" (content2=file to open), or "explorer.exe" (content2=folder to open, or content2=/select,"file_to_reveal_if_10.6+")
 ** TODO: finish implementation
 */
 SWELL_API_DEFINE(BOOL, ShellExecute,(HWND hwndDlg, const char *action,  const char *content1, const char *content2, const char *content3, int blah))
@@ -322,7 +323,7 @@ SWELL_API_DEFINE(int, SWELL_SetWindowLevel, (HWND hwnd, int newlevel))
 ** InvalidateRect()
 ** Notes: eraseBk is ignored, probably not threadsafe! hwnd can be NSWindow or NSView
 */
-SWELL_API_DEFINE(void,InvalidateRect,(HWND hwnd, RECT *r, int eraseBk))
+SWELL_API_DEFINE(BOOL,InvalidateRect,(HWND hwnd, const RECT *r, int eraseBk))
 
 /*
 ** UpdateWindow()
