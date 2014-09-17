@@ -1029,10 +1029,17 @@ int WDL_ImpulseBuffer::SetLength(int samples)
 }
 
 
-void WDL_ImpulseBuffer::SetNumChannels(int usench)
+static int ValidateNumChannels(int usench)
 {
   if (usench<1) usench=1;
   else if (usench>WDL_CONVO_MAX_IMPULSE_NCH) usench=WDL_CONVO_MAX_IMPULSE_NCH;
+  return usench;
+}
+
+
+void WDL_ImpulseBuffer::SetNumChannels(int usench)
+{
+  usench = ValidateNumChannels(usench);
 
   if (usench > m_nch)
   {
@@ -1053,4 +1060,11 @@ void WDL_ImpulseBuffer::SetNumChannels(int usench)
     int x;
     for(x=usench;x<WDL_CONVO_MAX_IMPULSE_NCH;x++) impulses[x].Resize(0,false);
   }
+}
+
+
+void WDL_ImpulseBuffer::Set(const WDL_FFT_REAL** bufs, int samples, int usench)
+{
+  m_nch = usench = ValidateNumChannels(usench);
+  for (int x = 0; x < usench; ++x) impulses[x].Set(bufs[x], samples);
 }

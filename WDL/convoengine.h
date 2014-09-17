@@ -33,6 +33,7 @@
 #include "queue.h"
 #include "fastqueue.h"
 #include "fft.h"
+#include "constheapbuf.h"
 
 #ifndef WDL_CONVO_MAX_IMPULSE_NCH
 #define WDL_CONVO_MAX_IMPULSE_NCH 2
@@ -69,9 +70,10 @@ public:
   void SetNumChannels(int usench); // handles allocating/converting/etc
   int GetNumChannels() { return m_nch; }
 
+  void Set(const WDL_FFT_REAL** bufs, int samples, int usench); // call instead of SetLength() and SetNumChannels() to use const instead of heap buffer
 
   double samplerate;
-  WDL_TypedBuf<WDL_FFT_REAL> impulses[WDL_CONVO_MAX_IMPULSE_NCH];
+  WDL_ConstTypedBuf<WDL_FFT_REAL> impulses[WDL_CONVO_MAX_IMPULSE_NCH];
 
 private:
   int m_nch;
