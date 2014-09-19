@@ -1066,5 +1066,16 @@ void WDL_ImpulseBuffer::SetNumChannels(int usench)
 void WDL_ImpulseBuffer::Set(const WDL_FFT_REAL** bufs, int samples, int usench)
 {
   m_nch = usench = ValidateNumChannels(usench);
+
+#ifdef WDL_CONVO_USE_CONST_HEAP_BUF
   for (int x = 0; x < usench; ++x) impulses[x].Set(bufs[x], samples);
+
+#else
+  SetLength(samples);
+  SetNumChannels(usench);
+  if (GetLength() > 0) for (int x = 0; x < usench; ++x)
+  {
+    memcpy(impulses[x].Get(), bufs[x], samples * sizeof(WDL_FFT_REAL));
+  }
+#endif
 }

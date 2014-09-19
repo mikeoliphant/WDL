@@ -33,7 +33,17 @@
 #include "queue.h"
 #include "fastqueue.h"
 #include "fft.h"
+
+#ifdef WDL_CONVO_USE_CONST_HEAP_BUF // define this for const impulse buffer support, see WDL_ImpulseBuffer::Set()
+
 #include "constheapbuf.h"
+typedef WDL_ConstTypedBuf<WDL_FFT_REAL> WDL_CONVO_IMPULSE_TYPED_BUF;
+
+#else
+
+typedef WDL_TypedBuf<WDL_FFT_REAL> WDL_CONVO_IMPULSE_TYPED_BUF;
+
+#endif
 
 #ifndef WDL_CONVO_MAX_IMPULSE_NCH
 #define WDL_CONVO_MAX_IMPULSE_NCH 2
@@ -73,7 +83,7 @@ public:
   void Set(const WDL_FFT_REAL** bufs, int samples, int usench); // call instead of SetLength() and SetNumChannels() to use const instead of heap buffer
 
   double samplerate;
-  WDL_ConstTypedBuf<WDL_FFT_REAL> impulses[WDL_CONVO_MAX_IMPULSE_NCH];
+  WDL_CONVO_IMPULSE_TYPED_BUF impulses[WDL_CONVO_MAX_IMPULSE_NCH];
 
 private:
   int m_nch;
