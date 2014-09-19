@@ -65,7 +65,7 @@ public:
 
 	PTRTYPE* Resize(int newsize, bool resizedown = true) { return (PTRTYPE*)m_hb.Resize(newsize * sizeof(PTRTYPE), resizedown); }
 
-	void Set(const PTRTYPE* ptr, int size) { m_hb.Set(ptr, size); }
+	void Set(const PTRTYPE* ptr, int size) { m_hb.Set(ptr, size * sizeof(PTRTYPE)); }
 
 private:
 	WDL_ConstHeapBuf m_hb;
