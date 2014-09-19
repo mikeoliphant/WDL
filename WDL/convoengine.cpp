@@ -1029,11 +1029,18 @@ int WDL_ImpulseBuffer::SetLength(int samples)
 }
 
 
-static int ValidateNumChannels(int usench)
+int WDL_ImpulseBuffer::ValidateNumChannels(int usench) const
 {
   if (usench<1) usench=1;
   else if (usench>WDL_CONVO_MAX_IMPULSE_NCH) usench=WDL_CONVO_MAX_IMPULSE_NCH;
   return usench;
+}
+
+
+void WDL_ImpulseBuffer::ClearUnusedChannels(int usench)
+{
+  int x;
+  for(x=usench;x<WDL_CONVO_MAX_IMPULSE_NCH;x++) impulses[x].Resize(0,false);
 }
 
 
@@ -1057,22 +1064,24 @@ void WDL_ImpulseBuffer::SetNumChannels(int usench)
   else if (usench<m_nch)
   {
     m_nch=usench;
-    int x;
-    for(x=usench;x<WDL_CONVO_MAX_IMPULSE_NCH;x++) impulses[x].Resize(0,false);
+    ClearUnusedChannels(usench);
   }
 }
 
 
 void WDL_ImpulseBuffer::Set(const WDL_FFT_REAL** bufs, int samples, int usench)
 {
-  m_nch = usench = ValidateNumChannels(usench);
-
 #ifdef WDL_CONVO_USE_CONST_HEAP_BUF
+  usench = ValidateNumChannels(usench);
+
   for (int x = 0; x < usench; ++x) impulses[x].Set(bufs[x], samples);
+  if (usench < m_nch) ClearUnusedChannels(usench);
+  m_nch = usench;
 
 #else
   SetLength(samples);
   SetNumChannels(usench);
+  usench = GetNumChannels();
   if (GetLength() > 0) for (int x = 0; x < usench; ++x)
   {
     memcpy(impulses[x].Get(), bufs[x], samples * sizeof(WDL_FFT_REAL));

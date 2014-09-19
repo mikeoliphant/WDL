@@ -86,6 +86,9 @@ public:
   WDL_CONVO_IMPULSE_TYPED_BUF impulses[WDL_CONVO_MAX_IMPULSE_NCH];
 
 private:
+  int ValidateNumChannels(int usench) const;
+  void ClearUnusedChannels(int usench);
+
   int m_nch;
 
 };
