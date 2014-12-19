@@ -47,7 +47,7 @@
 
 #endif // WDL_CONVO_ALIGN
 
-static void WDL_CONVO_CplxMul2(WDL_FFT_COMPLEX *c, WDL_FFT_COMPLEX *a, WDL_CONVO_IMPULSEBUFCPLXf *b, int n)
+static void WDL_CONVO_CplxMul2(WDL_FFT_COMPLEX *c, const WDL_FFT_COMPLEX *a, const WDL_CONVO_IMPULSEBUFCPLXf *b, int n)
 {
   WDL_FFT_REAL t1, t2, t3, t4, t5, t6, t7, t8;
   if (n<2 || (n&1)) return;
@@ -74,7 +74,7 @@ static void WDL_CONVO_CplxMul2(WDL_FFT_COMPLEX *c, WDL_FFT_COMPLEX *a, WDL_CONVO
     c += 2;
   } while (n -= 2);
 }
-static void WDL_CONVO_CplxMul3(WDL_FFT_COMPLEX *c, WDL_FFT_COMPLEX *a, WDL_CONVO_IMPULSEBUFCPLXf *b, int n)
+static void WDL_CONVO_CplxMul3(WDL_FFT_COMPLEX *c, const WDL_FFT_COMPLEX *a, const WDL_CONVO_IMPULSEBUFCPLXf *b, int n)
 {
   WDL_FFT_REAL t1, t2, t3, t4, t5, t6, t7, t8;
   if (n<2 || (n&1)) return;
