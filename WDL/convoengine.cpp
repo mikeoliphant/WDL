@@ -38,6 +38,23 @@
 #define CONVOENGINE_SILENCE_THRESH 1.0e-12 // -240dB
 #define CONVOENGINE_IMPULSE_SILENCE_THRESH 1.0e-15 // -300dB
 
+#if WDL_FFT_REALSIZE != 4 || defined(WDL_CONVO_WANT_FULLPRECISION_IMPULSE_STORAGE)
+#undef WDL_CONVO_SSE
+#undef WDL_CONVO_SSE3
+#endif
+
+#ifdef WDL_CONVO_SSE // define for SSE optimised CplxMul
+#include <xmmintrin.h>
+#endif
+
+#ifdef WDL_CONVO_SSE3 // define for SSE3 optimised CplxMul
+#include <pmmintrin.h>
+#endif
+
+#if defined(WDL_CONVO_SSE) || defined(WDL_CONVO_SSE3)
+#define WDL_CONVO_ALIGN 16
+#endif
+
 #ifdef WDL_CONVO_ALIGN
 #define WDL_CONVO_GETALIGNED() GetAligned(WDL_CONVO_ALIGN)
 #else
@@ -47,6 +64,7 @@
 
 #endif // WDL_CONVO_ALIGN
 
+#if !defined(WDL_CONVO_SSE) && !defined(WDL_CONVO_SSE3)
 static void WDL_CONVO_CplxMul2(WDL_FFT_COMPLEX *c, const WDL_FFT_COMPLEX *a, const WDL_CONVO_IMPULSEBUFCPLXf *b, int n)
 {
   WDL_FFT_REAL t1, t2, t3, t4, t5, t6, t7, t8;
@@ -101,6 +119,99 @@ static void WDL_CONVO_CplxMul3(WDL_FFT_COMPLEX *c, const WDL_FFT_COMPLEX *a, con
     c += 2;
   } while (n -= 2);
 }
+
+#elif defined(WDL_CONVO_SSE3)
+static void WDL_CONVO_CplxMul2(WDL_FFT_COMPLEX *c, const WDL_FFT_COMPLEX *a, const WDL_CONVO_IMPULSEBUFCPLXf *b, int n)
+{
+  __m128 xmm0, xmm1, xmm2;
+  if (n<2 || (n&1)) return;
+
+  do {
+    xmm2 = _mm_load_ps((const float*)b);
+    xmm1 = _mm_moveldup_ps(_mm_load_ps((const float*)a));
+    xmm0 = _mm_movehdup_ps(_mm_load_ps((const float*)a));
+    xmm1 = _mm_mul_ps(xmm1, xmm2);
+    xmm2 = _mm_shuffle_ps(xmm2, xmm2, 0xB1);
+    xmm2 = _mm_mul_ps(xmm2, xmm0);
+    xmm1 = _mm_addsub_ps(xmm1, xmm2);
+    _mm_store_ps((float*)c, xmm1);
+    a += 2;
+    b += 2;
+    c += 2;
+  } while (n -= 2);
+}
+static void WDL_CONVO_CplxMul3(WDL_FFT_COMPLEX *c, const WDL_FFT_COMPLEX *a, const WDL_CONVO_IMPULSEBUFCPLXf *b, int n)
+{
+  __m128 xmm0, xmm1, xmm2;
+  if (n<2 || (n&1)) return;
+
+  do {
+    xmm2 = _mm_load_ps((const float*)b);
+    xmm1 = _mm_moveldup_ps(_mm_load_ps((const float*)a));
+    xmm0 = _mm_movehdup_ps(_mm_load_ps((const float*)a));
+    xmm1 = _mm_mul_ps(xmm1, xmm2);
+    xmm2 = _mm_shuffle_ps(xmm2, xmm2, 0xB1);
+    xmm2 = _mm_mul_ps(xmm2, xmm0);
+    xmm1 = _mm_addsub_ps(xmm1, xmm2);
+    xmm1 = _mm_add_ps(xmm1, _mm_load_ps((const float*)c));
+    _mm_store_ps((float*)c, xmm1);
+    a += 2;
+    b += 2;
+    c += 2;
+  } while (n -= 2);
+}
+
+#elif defined(WDL_CONVO_SSE)
+static void WDL_CONVO_CplxMul2(WDL_FFT_COMPLEX *c, const WDL_FFT_COMPLEX *a, const WDL_CONVO_IMPULSEBUFCPLXf *b, int n)
+{
+  __m128 xmm0, xmm1, xmm2, xmm3, xmm4;
+  if (n<2 || (n&1)) return;
+
+  xmm4 = _mm_set_ps(1, -1, 1, -1);
+  do {
+    xmm3 = _mm_load_ps((const float*)a);
+    xmm2 = _mm_load_ps((const float*)b);
+    xmm0 = xmm3;
+    xmm1 = xmm2;
+    xmm0 = _mm_shuffle_ps(xmm0, xmm3, 0xB1);
+    xmm1 = _mm_shuffle_ps(xmm1, xmm2, 0xF5);
+    xmm1 = _mm_mul_ps(xmm1, xmm0);
+    xmm2 = _mm_shuffle_ps(xmm2, xmm2, 0xA0);
+    xmm2 = _mm_mul_ps(xmm2, xmm3);
+    xmm1 = _mm_mul_ps(xmm1, xmm4);
+    xmm1 = _mm_add_ps(xmm1, xmm2);
+    _mm_store_ps((float*)c, xmm1);
+    a += 2;
+    b += 2;
+    c += 2;
+  } while (n -= 2);
+}
+static void WDL_CONVO_CplxMul3(WDL_FFT_COMPLEX *c, const WDL_FFT_COMPLEX *a, const WDL_CONVO_IMPULSEBUFCPLXf *b, int n)
+{
+  __m128 xmm0, xmm1, xmm2, xmm3, xmm4;
+  if (n<2 || (n&1)) return;
+
+  xmm4 = _mm_set_ps(1, -1, 1, -1);
+  do {
+    xmm3 = _mm_load_ps((const float*)a);
+    xmm2 = _mm_load_ps((const float*)b);
+    xmm0 = xmm3;
+    xmm1 = xmm2;
+    xmm0 = _mm_shuffle_ps(xmm0, xmm3, 0xB1);
+    xmm1 = _mm_shuffle_ps(xmm1, xmm2, 0xF5);
+    xmm1 = _mm_mul_ps(xmm1, xmm0);
+    xmm2 = _mm_shuffle_ps(xmm2, xmm2, 0xA0);
+    xmm2 = _mm_mul_ps(xmm2, xmm3);
+    xmm1 = _mm_mul_ps(xmm1, xmm4);
+    xmm1 = _mm_add_ps(xmm1, xmm2);
+    xmm1 = _mm_add_ps(xmm1, _mm_load_ps((const float*)c));
+    _mm_store_ps((float*)c, xmm1);
+    a += 2;
+    b += 2;
+    c += 2;
+  } while (n -= 2);
+}
+#endif // WDL_CONVO_SSE
 
 static bool CompareQueueToBuf(WDL_FastQueue *q, const void *data, int len)
 {
