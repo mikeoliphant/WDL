@@ -82,7 +82,7 @@ public:
 
   void Set(const WDL_FFT_REAL** bufs, int samples, int usench); // call instead of SetLength() and SetNumChannels() to use const instead of heap buffer
 
-  double samplerate;
+  double samplerate; // TN: Not used, remove?
   WDL_CONVO_IMPULSE_TYPED_BUF impulses[WDL_CONVO_MAX_IMPULSE_NCH];
 
 private:
