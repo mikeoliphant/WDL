@@ -2454,7 +2454,7 @@ png_image_write_to_file(png_imagep image, const char *file_name,
 #endif /* SIMPLIFIED_WRITE */
 
 
-#endif /* PNG_WRITE_SUPPORTED */
+#endif /* WRITE */
 
 void PNGAPI
 png_set_compression_buffer_size(png_structrp png_ptr, png_size_t size)
@@ -2466,7 +2466,7 @@ png_set_compression_buffer_size(png_structrp png_ptr, png_size_t size)
        png_error(png_ptr, "invalid compression buffer size");
 
 #  ifdef PNG_SEQUENTIAL_READ_SUPPORTED
-      if (png_ptr->mode & PNG_IS_READ_STRUCT)
+      if ((png_ptr->mode & PNG_IS_READ_STRUCT) != 0)
       {
          png_ptr->IDAT_read_size = (png_uint_32)size; /* checked above */
          return;
@@ -2474,7 +2474,7 @@ png_set_compression_buffer_size(png_structrp png_ptr, png_size_t size)
 #  endif
 
 #  ifdef PNG_WRITE_SUPPORTED
-      if (!(png_ptr->mode & PNG_IS_READ_STRUCT))
+      if ((png_ptr->mode & PNG_IS_READ_STRUCT) == 0)
       {
          if (png_ptr->zowner != 0)
          {
