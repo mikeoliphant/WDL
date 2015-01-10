@@ -950,10 +950,9 @@ void EEL_Editor::doParenMatching()
       m_curs_y=new_y;
       m_want_x=-1;
       draw();
-      draw_message("");
       setCursor(1);
     }
-    else
+    else if (errmsg[0])
     {
       draw_message(errmsg);
       setCursor(0);
@@ -1061,65 +1060,35 @@ void EEL_Editor::doWatchInfo(int c)
   }
   if (curChar && Watch_OnContextHelp(&curChar,&curChar,c,sstr,sizeof(sstr))) return;
 
-  draw_message(sstr);
+  if (sstr[0]) draw_message(sstr);
   setCursor();
 }
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 void EEL_Editor::draw_bottom_line()
 {
-  mvaddstr(LINES-1,0,"Ctrl+(");
-
-#define DO(x,y) { attrset(m_color_bottomline|A_BOLD); addstr(x); attrset(m_color_bottomline&~A_BOLD); addstr(y);}
-    DO("S","ave ");
-    DO("F","ind ");
-    if (m_has_peek)
-    {
-      DO("","pee");
-      DO("K ","");
-    }
-    DO("","ma");
-    DO("T","");
-    DO("","ch");
-
-    if (GetTabCount()>1)
-    {
-      DO("", " | tab: ");
-      DO("[], F?", "=switch ");
-      DO("W", "=close");
-    }
-
-#undef DO
-    addstr(")");
+#define BOLD(x) { attrset(m_color_bottomline|A_BOLD); addstr(x); attrset(m_color_bottomline&~A_BOLD); }
+  BOLD(" S"); addstr("ave");
+  if (m_has_peek)
+  {
+    addstr(" pee"); BOLD("K");
+  }
+  if (GetTabCount()>1)
+  {
+    addstr(" | tab: ");
+    BOLD("[], F?"); addstr("=switch ");
+    BOLD("W"); addstr("=close");
+  }
+#undef BOLD
 }
 
+#define CTRL_KEY_DOWN (GetAsyncKeyState(VK_CONTROL)&0x8000)
+#define SHIFT_KEY_DOWN (GetAsyncKeyState(VK_SHIFT)&0x8000)
+#define ALT_KEY_DOWN (GetAsyncKeyState(VK_MENU)&0x8000)
 
 int EEL_Editor::onChar(int c)
 {
-  if (!m_state) switch(c)
+  if (!m_state && !SHIFT_KEY_DOWN && !ALT_KEY_DOWN) switch (c)
   {
   case KEY_F1:
   case 'K'-'A'+1:
@@ -1133,7 +1102,7 @@ int EEL_Editor::onChar(int c)
      setCursor();
   return 0;
 
-  case 'O'-'A'+1:
+  case 'I'-'A'+1:
     if (!m_selecting)
     {
       WDL_FastString *txtstr=m_text.Get(m_curs_y);
@@ -1160,9 +1129,7 @@ int EEL_Editor::onChar(int c)
   return 0;
   case KEY_F4:
   case 'T'-'A'+1:
-
     doParenMatching();
-
   return 0;
   }
 
@@ -1186,12 +1153,12 @@ LRESULT EEL_Editor::onMouseMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
       {
         const int y = ((short)HIWORD(lParam)) / CURSES_INSTANCE->m_font_h - m_top_margin;
         const int x = ((short)LOWORD(lParam)) / CURSES_INSTANCE->m_font_w + m_offs_x;
-        WDL_FastString *fs=m_text.Get(y + m_offs_y);
+        WDL_FastString *fs=m_text.Get(y + m_paneoffs_y[m_curpane]);
         if (fs && y >= 0)
         {
           if (!strncmp(fs->Get(),"import",6) && isspace(fs->Get()[6]))
           {
-            onChar('O'-'A'+1); // open
+            onChar('I'-'A'+1); // open imported file
             return 1;
           }
         }
