@@ -11,12 +11,14 @@
 *.php    text=auto
 *.txt    text=auto
 *.bat    text=auto
+*.cmd    text=auto
 
 *.dsp               text eol=crlf
 *.dsw               text eol=crlf
 *.sln               text eol=crlf
 *.vcxproj           text eol=crlf
 *.vcxproj.filters   text eol=crlf
+Makefile.msc        text eol=crlf
 
 *.sh                text eol=lf
 *.pbxproj           text eol=lf
