@@ -30,9 +30,19 @@
 #ifndef _WDL_CONVOENGINE_H_
 #define _WDL_CONVOENGINE_H_
 
+#ifdef _WIN32
+#include <windows.h>
+#elif defined(WDL_CONVO_THREAD)
+#include "swell/swell.h"
+#endif
+
 #include "queue.h"
 #include "fastqueue.h"
 #include "fft.h"
+
+#ifdef WDL_CONVO_THREAD
+#include "mutex.h"
+#endif
 
 #ifdef WDL_CONVO_USE_CONST_HEAP_BUF // define this for const impulse buffer support, see WDL_ImpulseBuffer::Set()
 
@@ -176,6 +186,48 @@ private:
   bool m_need_feedsilence;
 
 } WDL_FIXALIGN;
+
+#ifdef WDL_CONVO_THREAD // define for threaded low latency support
+class WDL_ConvolutionEngine_Thread
+{
+public:
+  WDL_ConvolutionEngine_Thread();
+  ~WDL_ConvolutionEngine_Thread();
+
+  int SetImpulse(WDL_ImpulseBuffer *impulse, int maxfft_size=0, int known_blocksize=0, int max_imp_size=0, int impulse_offset=0, int latency_allowed=0);
+
+  int GetLatency() { return m_zl_engine.GetLatency(); }
+  void Reset();
+
+  void Add(WDL_FFT_REAL **bufs, int len, int nch);
+
+  int Avail(int wantSamples);
+  WDL_FFT_REAL **Get(); // returns length valid
+  void Advance(int len);
+
+private:
+  WDL_ConvolutionEngine_Div m_zl_engine;
+  WDL_ConvolutionEngine m_thread_engine;
+
+  WDL_Queue m_samplesout[WDL_CONVO_MAX_PROC_NCH];
+  WDL_Queue m_samplesout2[WDL_CONVO_MAX_PROC_NCH];
+  WDL_FastQueue m_samplesin[WDL_CONVO_MAX_PROC_NCH];
+  WDL_FastQueue m_samplesin2[WDL_CONVO_MAX_PROC_NCH];
+
+  WDL_FFT_REAL *m_get_tmpptrs[WDL_CONVO_MAX_PROC_NCH];
+
+  WDL_Mutex m_samplesout_lock, m_samplesin_lock;
+
+  HANDLE m_thread, m_signal_thread, m_signal_main;
+  static DWORD WINAPI ThreadProc(LPVOID lpParam);
+
+  int m_proc_nch;
+  bool m_need_feedsilence;
+
+  bool m_thread_state;
+
+} WDL_FIXALIGN;
+#endif // WDL_CONVO_THREAD
 
 
 #endif

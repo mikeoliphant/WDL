@@ -21,9 +21,6 @@
 
 */
 
-#ifdef _WIN32
-#include <windows.h>
-#endif
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1056,6 +1053,284 @@ int WDL_ConvolutionEngine_Div::Avail(int wantSamples)
   int av=m_samplesout[0].Available()/sizeof(WDL_FFT_REAL);
   return av>wso ? wso : av;
 }
+
+
+
+/****************************************************************
+**  threaded low latency version
+*/
+
+#ifdef WDL_CONVO_THREAD
+
+WDL_ConvolutionEngine_Thread::WDL_ConvolutionEngine_Thread()
+{
+  m_proc_nch=2;
+  m_need_feedsilence=true;
+
+  m_thread = NULL;
+  m_signal_thread = CreateEvent(NULL, FALSE, FALSE, NULL);
+  m_signal_main = CreateEvent(NULL, FALSE, FALSE, NULL);
+
+  m_thread_state = true;
+}
+
+int WDL_ConvolutionEngine_Thread::SetImpulse(WDL_ImpulseBuffer *impulse, int maxfft_size, int known_blocksize, int max_imp_size, int impulse_offset, int latency_allowed)
+{
+  Reset();
+
+  if (maxfft_size<0)maxfft_size=-maxfft_size;
+  if (!maxfft_size || maxfft_size>16384) maxfft_size=16384;
+
+  int samplesleft=impulse->GetLength()-impulse_offset;
+  if (max_imp_size>0 && samplesleft>max_imp_size) samplesleft=max_imp_size;
+
+  int impulsechunksize = maxfft_size;
+  if (impulsechunksize >= samplesleft) impulsechunksize=samplesleft;
+  int offs = m_zl_engine.SetImpulse(impulse, maxfft_size, known_blocksize, impulsechunksize, impulse_offset, latency_allowed) + impulsechunksize;
+
+  m_thread_engine.SetImpulse(impulse, maxfft_size*2, impulse_offset + impulsechunksize, samplesleft - impulsechunksize);
+  m_thread_engine.m_zl_delaypos = offs;
+  m_thread_engine.m_zl_dumpage=0;
+
+  return GetLatency();
+}
+
+void WDL_ConvolutionEngine_Thread::Reset()
+{
+  if (m_thread && m_thread_state)
+  {
+    SetEvent(m_signal_thread);
+    WaitForSingleObject(m_signal_main, INFINITE);
+  }
+
+  m_zl_engine.Reset();
+  m_thread_engine.Reset();
+
+  int x;
+  for (x = 0; x < WDL_CONVO_MAX_PROC_NCH; x ++)
+  {
+    m_samplesin[x].Clear();
+    m_samplesin2[x].Clear();
+    m_samplesout[x].Clear();
+    m_samplesout2[x].Clear();
+  }
+
+  m_need_feedsilence=true;
+}
+
+WDL_ConvolutionEngine_Thread::~WDL_ConvolutionEngine_Thread()
+{
+  if (m_thread)
+  {
+    if (m_thread_state)
+    {
+      m_thread_state = false;
+      SetEvent(m_signal_thread);
+      WaitForSingleObject(m_thread, INFINITE);
+    }
+    CloseHandle(m_thread);
+  }
+  if (m_signal_thread) CloseHandle(m_signal_thread);
+  if (m_signal_main) CloseHandle(m_signal_main);
+}
+
+void WDL_ConvolutionEngine_Thread::Add(WDL_FFT_REAL **bufs, int len, int nch)
+{
+  m_proc_nch=nch;
+
+  if (!m_thread)
+  {
+    if (m_signal_thread && m_signal_main) m_thread = CreateThread(NULL, 0, ThreadProc, this, 0, NULL);
+    if (m_thread) SetThreadPriority(m_thread, THREAD_PRIORITY_ABOVE_NORMAL);
+  }
+
+  if (m_thread && m_thread_state)
+  {
+    int ch;
+    m_samplesin_lock.Enter();
+    for (ch = 0; ch < nch; ch ++)
+    {
+      m_samplesin[ch].Add(bufs ? bufs[ch] : NULL,len*sizeof(WDL_FFT_REAL));
+    }
+    m_samplesin_lock.Leave();
+    SetEvent(m_signal_thread);
+  }
+
+  m_zl_engine.Add(bufs,len,nch);
+}
+
+WDL_FFT_REAL **WDL_ConvolutionEngine_Thread::Get()
+{
+  int x;
+  for (x = 0; x < m_proc_nch; x ++)
+  {
+    m_get_tmpptrs[x]=(WDL_FFT_REAL *)m_samplesout2[x].Get();
+  }
+  return m_get_tmpptrs;
+}
+
+void WDL_ConvolutionEngine_Thread::Advance(int len)
+{
+  int x;
+  for (x = 0; x < m_proc_nch; x ++)
+  {
+    m_samplesout2[x].Advance(len*sizeof(WDL_FFT_REAL));
+    m_samplesout2[x].Compact();
+  }
+}
+
+int WDL_ConvolutionEngine_Thread::Avail(int wantSamples)
+{
+  int wso=wantSamples;
+  int x;
+
+  int av=m_samplesout2[0].Available()/sizeof(WDL_FFT_REAL);
+  if (av >= wantSamples) return av;
+  wantSamples -= av;
+
+  av=m_zl_engine.Avail(wantSamples);
+  if (av < wantSamples) wantSamples=av;
+
+  m_samplesout_lock.Enter();
+  av=m_samplesout[0].Available();
+  m_samplesout_lock.Leave();
+  while (av < wantSamples)
+  {
+    int a;
+    if (m_thread && m_thread_state)
+    {
+      SetEvent(m_signal_thread);
+      WaitForSingleObject(m_signal_main, INFINITE);
+
+      m_samplesout_lock.Enter();
+      a=m_samplesout[0].Available();
+      m_samplesout_lock.Leave();
+    }
+    else
+    {
+      a=av;
+    }
+    if (a>av) av=a; else wantSamples=av;
+  }
+
+  if (wantSamples>0)
+  {
+    WDL_FFT_REAL *tp[WDL_CONVO_MAX_PROC_NCH];
+    for (x =0; x < m_proc_nch; x ++)
+    {
+      memset(tp[x]=(WDL_FFT_REAL*)m_samplesout2[x].Add(NULL,wantSamples*sizeof(WDL_FFT_REAL)),0,wantSamples*sizeof(WDL_FFT_REAL));
+    }
+
+    WDL_FFT_REAL **p=m_zl_engine.Get();
+    if (p)
+    {
+      int i;
+      for (i =0; i < m_proc_nch; i ++)
+      {
+        WDL_FFT_REAL *o=tp[i];
+        WDL_FFT_REAL *in=p[i];
+        int j=wantSamples;
+        while (j-->0) *o++ += *in++;
+      }
+    }
+    m_zl_engine.Advance(wantSamples);
+
+    m_samplesout_lock.Enter();
+    {
+      int i;
+      for (i =0; i < m_proc_nch; i ++)
+      {
+        WDL_FFT_REAL *o=tp[i];
+        WDL_FFT_REAL *in=(WDL_FFT_REAL *)m_samplesout[i].Get();
+        int j=wantSamples;
+        while (j-->0) *o++ += *in++;
+
+        m_samplesout[i].Advance(wantSamples*sizeof(WDL_FFT_REAL));
+        m_samplesout[i].Compact();
+      }
+    }
+    m_samplesout_lock.Leave();
+  }
+
+  av=m_samplesout2[0].Available()/sizeof(WDL_FFT_REAL);
+  return av>wso ? wso : av;
+}
+
+DWORD WINAPI WDL_ConvolutionEngine_Thread::ThreadProc(LPVOID lpParam)
+{
+  WDL_ConvolutionEngine_Thread* _this = (WDL_ConvolutionEngine_Thread*)lpParam;
+
+  do
+  {
+    if (WaitForSingleObject(_this->m_signal_thread, INFINITE) != WAIT_OBJECT_0)
+    {
+      _this->m_thread_state = false;
+    }
+
+    if (_this->m_thread_state)
+    {
+      int avail, av, x;
+
+      _this->m_samplesin_lock.Enter();
+      avail = _this->m_samplesin[0].Available();
+      while (avail > 0)
+      {
+        int sz;
+        for (x = 0; x < _this->m_proc_nch; x ++)
+        {
+          void *buf=NULL;
+          sz=_this->m_samplesin[x].GetPtr(0,&buf);
+          _this->m_samplesin2[x].Add(buf,sz);
+          _this->m_samplesin[x].Advance(sz);
+        }
+        avail -= sz;
+      }
+      _this->m_samplesin_lock.Leave();
+
+      av = avail = _this->m_samplesin2[0].Available();
+      while (avail > 0)
+      {
+        WDL_FFT_REAL *tp[WDL_CONVO_MAX_PROC_NCH];
+        int sz;
+        for (x = 0; x < _this->m_proc_nch; x ++)
+        {
+          sz=_this->m_samplesin2[x].GetPtr(0,(void**)&tp[x]);
+        }
+        _this->m_thread_engine.Add(tp,sz/sizeof(WDL_FFT_REAL),_this->m_proc_nch);
+        for (x = 0; x < _this->m_proc_nch; x ++)
+        {
+          _this->m_samplesin2[x].Advance(sz);
+        }
+        if (_this->m_need_feedsilence)
+        {
+          _this->m_thread_engine.AddSilenceToOutput(_this->m_thread_engine.m_zl_delaypos,_this->m_proc_nch); // add silence to output (to delay output to its correct time)
+          _this->m_need_feedsilence=false;
+        }
+        avail -= sz;
+      }
+
+      if (av) av = _this->m_thread_engine.Avail(av/sizeof(WDL_FFT_REAL));
+      if (av)
+      {
+        WDL_FFT_REAL **p=_this->m_thread_engine.Get();
+        _this->m_samplesout_lock.Enter();
+        for (x = 0; x < _this->m_proc_nch; x ++)
+        {
+          _this->m_samplesout[x].Add(p[x],av*sizeof(WDL_FFT_REAL));
+        }
+        _this->m_samplesout_lock.Leave();
+        _this->m_thread_engine.Advance(av);
+      }
+    }
+
+    SetEvent(_this->m_signal_main);
+  }
+  while (_this->m_thread_state);
+
+  return 0;
+}
+
+#endif // WDL_CONVO_THREAD
 
 
 #ifdef WDL_TEST_CONVO
