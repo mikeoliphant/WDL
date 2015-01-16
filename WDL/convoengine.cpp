@@ -1062,16 +1062,64 @@ int WDL_ConvolutionEngine_Div::Avail(int wantSamples)
 
 #ifdef WDL_CONVO_THREAD
 
+#ifdef _WIN32
+
+#define WDL_CONVO_thread_state (m_thread && m_thread_state)
+
+#else
+
+#define WDL_CONVO_thread_state m_thread_state
+
+static void WDL_CONVO_cond_init(bool *isSignal, pthread_cond_t *cond, pthread_mutex_t *mutex)
+{
+  *isSignal = false;
+  pthread_mutex_init(mutex,NULL);
+  pthread_cond_init(cond,NULL);
+}
+
+static void WDL_CONVO_cond_signal(bool *isSignal, pthread_cond_t *cond, pthread_mutex_t *mutex)
+{
+  pthread_mutex_lock(mutex);
+  if (!*isSignal)
+  {
+    *isSignal = true;
+    pthread_cond_signal(cond);
+  }
+  pthread_mutex_unlock(mutex);
+}
+
+static void WDL_CONVO_cond_wait(bool *isSignal, pthread_cond_t *cond, pthread_mutex_t *mutex)
+{
+  pthread_mutex_lock(mutex);
+  while (!*isSignal) pthread_cond_wait(cond,mutex);
+  *isSignal=false;
+  pthread_mutex_unlock(mutex);
+}
+
+static void WDL_CONVO_cond_destroy(pthread_cond_t *cond, pthread_mutex_t *mutex)
+{
+  pthread_cond_destroy(cond);
+  pthread_mutex_destroy(mutex);
+}
+
+#endif // _WIN32
+
 WDL_ConvolutionEngine_Thread::WDL_ConvolutionEngine_Thread()
 {
   m_proc_nch=2;
   m_need_feedsilence=true;
 
+#ifdef _WIN32
   m_thread = NULL;
   m_signal_thread = CreateEvent(NULL, FALSE, FALSE, NULL);
   m_signal_main = CreateEvent(NULL, FALSE, FALSE, NULL);
 
   m_thread_state = true;
+#else
+  m_thread_state = false;
+  WDL_CONVO_cond_init(&m_signal_thread, &m_signal_thread_cond, &m_signal_thread_mutex);
+  WDL_CONVO_cond_init(&m_signal_main, &m_signal_main_cond, &m_signal_main_mutex);
+#endif
 }
 
 int WDL_ConvolutionEngine_Thread::SetImpulse(WDL_ImpulseBuffer *impulse, int maxfft_size, int known_blocksize, int max_imp_size, int impulse_offset, int latency_allowed)
@@ -1097,10 +1145,15 @@ int WDL_ConvolutionEngine_Thread::SetImpulse(WDL_ImpulseBuffer *impulse, int max
 
 void WDL_ConvolutionEngine_Thread::Reset()
 {
-  if (m_thread && m_thread_state)
+  if (WDL_CONVO_thread_state)
   {
+#ifdef _WIN32
     SetEvent(m_signal_thread);
     WaitForSingleObject(m_signal_main, INFINITE);
+#else
+    WDL_CONVO_cond_signal(&m_signal_thread, &m_signal_thread_cond, &m_signal_thread_mutex);
+    WDL_CONVO_cond_wait(&m_signal_main, &m_signal_main_cond, &m_signal_main_mutex);
+#endif
   }
 
   m_zl_engine.Reset();
@@ -1120,6 +1173,7 @@ void WDL_ConvolutionEngine_Thread::Reset()
 
 WDL_ConvolutionEngine_Thread::~WDL_ConvolutionEngine_Thread()
 {
+#ifdef _WIN32
   if (m_thread)
   {
     if (m_thread_state)
@@ -1132,19 +1186,54 @@ WDL_ConvolutionEngine_Thread::~WDL_ConvolutionEngine_Thread()
   }
   if (m_signal_thread) CloseHandle(m_signal_thread);
   if (m_signal_main) CloseHandle(m_signal_main);
+#else
+  if (m_thread_state)
+  {
+    m_thread_state = false;
+    WDL_CONVO_cond_signal(&m_signal_thread, &m_signal_thread_cond, &m_signal_thread_mutex);
+    void *tmp;
+    pthread_join(m_thread,&tmp);
+    pthread_detach(m_thread);
+  }
+  WDL_CONVO_cond_destroy(&m_signal_thread_cond, &m_signal_thread_mutex);
+  WDL_CONVO_cond_destroy(&m_signal_main_cond, &m_signal_main_mutex);
+#endif
 }
 
 void WDL_ConvolutionEngine_Thread::Add(WDL_FFT_REAL **bufs, int len, int nch)
 {
   m_proc_nch=nch;
 
+#ifdef _WIN32
   if (!m_thread)
   {
     if (m_signal_thread && m_signal_main) m_thread = CreateThread(NULL, 0, ThreadProc, this, 0, NULL);
     if (m_thread) SetThreadPriority(m_thread, THREAD_PRIORITY_ABOVE_NORMAL);
   }
+#else
+  if (!m_thread_state)
+  {
+    m_thread_state = true;
 
-  if (m_thread && m_thread_state)
+    m_thread=0;
+    pthread_create(&m_thread,NULL,ThreadProc,this);
+
+    static const int prio = 1;
+    int pol;
+    struct sched_param param;
+    if (!pthread_getschedparam(m_thread,&pol,&param))
+    {
+
+      param.sched_priority = 31 + prio;
+      int mt=sched_get_priority_min(pol);
+      if (param.sched_priority<mt||param.sched_priority > (mt=sched_get_priority_max(pol)))param.sched_priority=mt;
+
+      pthread_setschedparam(m_thread,pol,&param);
+    }
+  }
+#endif
+
+  if (WDL_CONVO_thread_state)
   {
     int ch;
     m_samplesin_lock.Enter();
@@ -1153,7 +1242,11 @@ void WDL_ConvolutionEngine_Thread::Add(WDL_FFT_REAL **bufs, int len, int nch)
       m_samplesin[ch].Add(bufs ? bufs[ch] : NULL,len*sizeof(WDL_FFT_REAL));
     }
     m_samplesin_lock.Leave();
+#ifdef _WIN32
     SetEvent(m_signal_thread);
+#else
+    WDL_CONVO_cond_signal(&m_signal_thread, &m_signal_thread_cond, &m_signal_thread_mutex);
+#endif
   }
 
   m_zl_engine.Add(bufs,len,nch);
@@ -1197,10 +1290,15 @@ int WDL_ConvolutionEngine_Thread::Avail(int wantSamples)
   while (av < wantSamples)
   {
     int a;
-    if (m_thread && m_thread_state)
+    if (WDL_CONVO_thread_state)
     {
+#ifdef _WIN32
       SetEvent(m_signal_thread);
       WaitForSingleObject(m_signal_main, INFINITE);
+#else
+      WDL_CONVO_cond_signal(&m_signal_thread, &m_signal_thread_cond, &m_signal_thread_mutex);
+      WDL_CONVO_cond_wait(&m_signal_main, &m_signal_main_cond, &m_signal_main_mutex);
+#endif
 
       m_samplesout_lock.Enter();
       a=m_samplesout[0].Available();
@@ -1256,16 +1354,24 @@ int WDL_ConvolutionEngine_Thread::Avail(int wantSamples)
   return av>wso ? wso : av;
 }
 
+#ifdef _WIN32
 DWORD WINAPI WDL_ConvolutionEngine_Thread::ThreadProc(LPVOID lpParam)
+#else
+void *WDL_ConvolutionEngine_Thread::ThreadProc(void *lpParam)
+#endif
 {
   WDL_ConvolutionEngine_Thread* _this = (WDL_ConvolutionEngine_Thread*)lpParam;
 
   do
   {
+#ifdef _WIN32
     if (WaitForSingleObject(_this->m_signal_thread, INFINITE) != WAIT_OBJECT_0)
     {
       _this->m_thread_state = false;
     }
+#else
+    WDL_CONVO_cond_wait(&_this->m_signal_thread, &_this->m_signal_thread_cond, &_this->m_signal_thread_mutex);
+#endif
 
     if (_this->m_thread_state)
     {
@@ -1323,10 +1429,17 @@ DWORD WINAPI WDL_ConvolutionEngine_Thread::ThreadProc(LPVOID lpParam)
       }
     }
 
+#ifdef _WIN32
     SetEvent(_this->m_signal_main);
+#else
+    WDL_CONVO_cond_signal(&_this->m_signal_main, &_this->m_signal_main_cond, &_this->m_signal_main_mutex);
+#endif
   }
   while (_this->m_thread_state);
 
+#ifndef _WIN32
+  pthread_exit(0);
+#endif
   return 0;
 }
 

@@ -32,17 +32,18 @@
 
 #ifdef _WIN32
 #include <windows.h>
-#elif defined(WDL_CONVO_THREAD)
-#include "swell/swell.h"
+#endif
+
+#ifdef WDL_CONVO_THREAD
+#ifndef _WIN32
+#include <pthread.h>
+#endif
+#include "mutex.h"
 #endif
 
 #include "queue.h"
 #include "fastqueue.h"
 #include "fft.h"
-
-#ifdef WDL_CONVO_THREAD
-#include "mutex.h"
-#endif
 
 #ifdef WDL_CONVO_USE_CONST_HEAP_BUF // define this for const impulse buffer support, see WDL_ImpulseBuffer::Set()
 
@@ -218,13 +219,23 @@ private:
 
   WDL_Mutex m_samplesout_lock, m_samplesin_lock;
 
+  int m_proc_nch;
+
+#ifdef _WIN32
   HANDLE m_thread, m_signal_thread, m_signal_main;
   static DWORD WINAPI ThreadProc(LPVOID lpParam);
+#else
+  pthread_t m_thread;
 
-  int m_proc_nch;
-  bool m_need_feedsilence;
+  pthread_cond_t m_signal_thread_cond, m_signal_main_cond;
+  pthread_mutex_t m_signal_thread_mutex, m_signal_main_mutex;
+  bool m_signal_thread, m_signal_main;
 
+  static void *ThreadProc(void *lpParam);
+#endif
   bool m_thread_state;
+
+  bool m_need_feedsilence;
 
 } WDL_FIXALIGN;
 #endif // WDL_CONVO_THREAD
