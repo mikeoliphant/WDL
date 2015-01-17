@@ -291,7 +291,7 @@ int WDL_ConvolutionEngine::SetImpulse(WDL_ImpulseBuffer *impulse, int fft_size, 
       int lenout=impulse->impulses[x].GetSize()-impulse_sample_offset;  
       if (max_imp_size && lenout>max_imp_size) lenout=max_imp_size;
 
-      m_impulse[x].Resize(lenout+WDL_CONVO_ALIGN-1);
+      m_impulse[x].Resize(lenout>0 ? lenout+WDL_CONVO_ALIGN-1 : 0);
       WDL_CONVO_IMPULSEBUFf *impout=m_impulse[x].WDL_CONVO_GETALIGNED()+lenout;
       while (lenout-->0) *--impout = (WDL_CONVO_IMPULSEBUFf) *imp++;
     }
@@ -332,7 +332,8 @@ int WDL_ConvolutionEngine::SetImpulse(WDL_ImpulseBuffer *impulse, int fft_size, 
 
     WDL_FFT_REAL *imp2=x < m_impulse_nch-1 ? impulse->impulses[x+1].Get()+impulse_sample_offset : NULL;
 
-    m_impulse[x].Resize((nblocks+!!smallerSizeMode)*fft_size*2+WDL_CONVO_ALIGN-1);
+    int nb=nblocks+!!smallerSizeMode;
+    m_impulse[x].Resize(nb>0 ? nb*fft_size*2+WDL_CONVO_ALIGN-1 : 0);
     WDL_CONVO_IMPULSEBUFf *impout=m_impulse[x].WDL_CONVO_GETALIGNED();
     char *zbuf=m_impulse_zflag[x].Resize(nblocks);
     int lenout=impulse->impulses[x].GetSize()-impulse_sample_offset;  
