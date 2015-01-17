@@ -1137,8 +1137,9 @@ int WDL_ConvolutionEngine_Thread::SetImpulse(WDL_ImpulseBuffer *impulse, int max
   if (impulsechunksize >= samplesleft) impulsechunksize=samplesleft;
   int offs = m_zl_engine.SetImpulse(impulse, maxfft_size, known_blocksize, impulsechunksize, impulse_offset, latency_allowed) + impulsechunksize;
 
-  m_thread_engine.SetImpulse(impulse, maxfft_size*2, impulse_offset + impulsechunksize, samplesleft - impulsechunksize);
-  m_thread_engine.m_zl_delaypos = offs;
+  samplesleft -= impulsechunksize;
+  m_thread_engine.SetImpulse(impulse, maxfft_size*2, impulse_offset + impulsechunksize, samplesleft);
+  m_thread_engine.m_zl_delaypos = samplesleft > 0 ? offs : -1;
   m_thread_engine.m_zl_dumpage=0;
 
   return GetLatency();
@@ -1234,7 +1235,7 @@ void WDL_ConvolutionEngine_Thread::Add(WDL_FFT_REAL **bufs, int len, int nch)
   }
 #endif
 
-  if (WDL_CONVO_thread_state)
+  if (WDL_CONVO_thread_state && m_thread_engine.m_zl_delaypos >= 0)
   {
     int ch;
     m_samplesin_lock.Enter();
@@ -1285,31 +1286,34 @@ int WDL_ConvolutionEngine_Thread::Avail(int wantSamples)
   av=m_zl_engine.Avail(wantSamples);
   if (av < wantSamples) wantSamples=av;
 
-  m_samplesout_lock.Enter();
-  av=m_samplesout[0].Available();
-  m_samplesout_lock.Leave();
-  while (av < wantSamples)
+  if (m_thread_engine.m_zl_delaypos >= 0)
   {
-    int a;
-    if (WDL_CONVO_thread_state)
+    m_samplesout_lock.Enter();
+    av=m_samplesout[0].Available();
+    m_samplesout_lock.Leave();
+    while (av < wantSamples)
     {
+      int a;
+      if (WDL_CONVO_thread_state)
+      {
 #ifdef _WIN32
-      SetEvent(m_signal_thread);
-      WaitForSingleObject(m_signal_main, INFINITE);
+        SetEvent(m_signal_thread);
+        WaitForSingleObject(m_signal_main, INFINITE);
 #else
-      WDL_CONVO_cond_signal(&m_signal_thread, &m_signal_thread_cond, &m_signal_thread_mutex);
-      WDL_CONVO_cond_wait(&m_signal_main, &m_signal_main_cond, &m_signal_main_mutex);
+        WDL_CONVO_cond_signal(&m_signal_thread, &m_signal_thread_cond, &m_signal_thread_mutex);
+        WDL_CONVO_cond_wait(&m_signal_main, &m_signal_main_cond, &m_signal_main_mutex);
 #endif
 
-      m_samplesout_lock.Enter();
-      a=m_samplesout[0].Available();
-      m_samplesout_lock.Leave();
+        m_samplesout_lock.Enter();
+        a=m_samplesout[0].Available();
+        m_samplesout_lock.Leave();
+      }
+      else
+      {
+        a=av;
+      }
+      if (a>av) av=a; else wantSamples=av;
     }
-    else
-    {
-      a=av;
-    }
-    if (a>av) av=a; else wantSamples=av;
   }
 
   if (wantSamples>0)
@@ -1334,21 +1338,24 @@ int WDL_ConvolutionEngine_Thread::Avail(int wantSamples)
     }
     m_zl_engine.Advance(wantSamples);
 
-    m_samplesout_lock.Enter();
+    if (m_thread_engine.m_zl_delaypos >= 0)
     {
-      int i;
-      for (i =0; i < m_proc_nch; i ++)
+      m_samplesout_lock.Enter();
       {
-        WDL_FFT_REAL *o=tp[i];
-        WDL_FFT_REAL *in=(WDL_FFT_REAL *)m_samplesout[i].Get();
-        int j=wantSamples;
-        while (j-->0) *o++ += *in++;
+        int i;
+        for (i =0; i < m_proc_nch; i ++)
+        {
+          WDL_FFT_REAL *o=tp[i];
+          WDL_FFT_REAL *in=(WDL_FFT_REAL *)m_samplesout[i].Get();
+          int j=wantSamples;
+          while (j-->0) *o++ += *in++;
 
-        m_samplesout[i].Advance(wantSamples*sizeof(WDL_FFT_REAL));
-        m_samplesout[i].Compact();
+          m_samplesout[i].Advance(wantSamples*sizeof(WDL_FFT_REAL));
+          m_samplesout[i].Compact();
+        }
       }
+      m_samplesout_lock.Leave();
     }
-    m_samplesout_lock.Leave();
   }
 
   av=m_samplesout2[0].Available()/sizeof(WDL_FFT_REAL);
@@ -1410,7 +1417,10 @@ void *WDL_ConvolutionEngine_Thread::ThreadProc(void *lpParam)
         }
         if (_this->m_need_feedsilence)
         {
-          _this->m_thread_engine.AddSilenceToOutput(_this->m_thread_engine.m_zl_delaypos,_this->m_proc_nch); // add silence to output (to delay output to its correct time)
+          if (_this->m_thread_engine.m_zl_delaypos > 0)
+          {
+            _this->m_thread_engine.AddSilenceToOutput(_this->m_thread_engine.m_zl_delaypos,_this->m_proc_nch); // add silence to output (to delay output to its correct time)
+          }
           _this->m_need_feedsilence=false;
         }
         avail -= sz;
