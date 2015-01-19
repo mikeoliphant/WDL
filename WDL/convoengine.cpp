@@ -30,7 +30,9 @@
 #include "denormal.h"
 
 //#define TIMING
+#ifdef TIMING
 #include "timing.c"
+#endif
 
 #define CONVOENGINE_SILENCE_THRESH 1.0e-12 // -240dB
 #define CONVOENGINE_IMPULSE_SILENCE_THRESH 1.0e-15 // -300dB
@@ -828,7 +830,9 @@ void WDL_ConvolutionEngine::Advance(int len)
 
 WDL_ConvolutionEngine_Div::WDL_ConvolutionEngine_Div()
 {
+#ifdef TIMING
   timingInit();
+#endif
   m_proc_nch=2;
   m_need_feedsilence=true;
 }
@@ -925,7 +929,9 @@ void WDL_ConvolutionEngine_Div::Reset()
 
 WDL_ConvolutionEngine_Div::~WDL_ConvolutionEngine_Div()
 {
+#ifdef TIMING
   timingPrint();
+#endif
   m_engines.Empty(true);
 }
 
@@ -976,7 +982,9 @@ void WDL_ConvolutionEngine_Div::Advance(int len)
 
 int WDL_ConvolutionEngine_Div::Avail(int wantSamples)
 {
+#ifdef TIMING
   timingEnter(1);
+#endif
   int wso=wantSamples;
   int x;
 #ifdef WDLCONVO_ZL_ACCOUNTING
@@ -1049,7 +1057,9 @@ int WDL_ConvolutionEngine_Div::Avail(int wantSamples)
       eng->Advance(wantSamples);
     }
   }
+#ifdef TIMING
   timingLeave(1);
+#endif
 
   int av=m_samplesout[0].Available()/sizeof(WDL_FFT_REAL);
   return av>wso ? wso : av;
