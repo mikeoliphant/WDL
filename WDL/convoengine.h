@@ -206,6 +206,10 @@ public:
   WDL_FFT_REAL **Get(); // returns length valid
   void Advance(int len);
 
+  // threading isn't actually enabled/disabled until next SetImpulse() call
+  void EnableThread(bool enable) { m_thread_enable = enable; }
+  bool ThreadEnabled() const { return m_thread_enable; }
+
 private:
   bool CreateThread();
   void CloseThread();
@@ -236,7 +240,7 @@ private:
 
   static void *ThreadProc(void *lpParam);
 #endif
-  bool m_thread_state;
+  bool m_thread_enable, m_thread_state;
 
   bool m_need_feedsilence;
 

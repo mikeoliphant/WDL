@@ -1120,6 +1120,7 @@ WDL_ConvolutionEngine_Thread::WDL_ConvolutionEngine_Thread()
   m_proc_nch=2;
   m_need_feedsilence=true;
 
+  m_thread_enable = true;
 #ifdef _WIN32
   m_thread = NULL;
   m_signal_thread = CreateEvent(NULL, FALSE, FALSE, NULL);
@@ -1135,6 +1136,7 @@ WDL_ConvolutionEngine_Thread::WDL_ConvolutionEngine_Thread()
 
 int WDL_ConvolutionEngine_Thread::SetImpulse(WDL_ImpulseBuffer *impulse, int maxfft_size, int known_blocksize, int max_imp_size, int impulse_offset, int latency_allowed)
 {
+  if (!m_thread_enable) CloseThread();
   Reset();
 
   if (maxfft_size<0)maxfft_size=-maxfft_size;
@@ -1144,7 +1146,7 @@ int WDL_ConvolutionEngine_Thread::SetImpulse(WDL_ImpulseBuffer *impulse, int max
   if (max_imp_size>0 && samplesleft>max_imp_size) samplesleft=max_imp_size;
 
   int impulsechunksize = maxfft_size;
-  if (impulsechunksize >= samplesleft) impulsechunksize=samplesleft;
+  if (impulsechunksize >= samplesleft || !m_thread_enable) impulsechunksize=samplesleft;
   int offs = m_zl_engine.SetImpulse(impulse, maxfft_size, known_blocksize, impulsechunksize, impulse_offset, latency_allowed) + impulsechunksize;
 
   samplesleft -= impulsechunksize;
