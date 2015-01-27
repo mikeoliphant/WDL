@@ -207,6 +207,9 @@ public:
   void Advance(int len);
 
 private:
+  bool CreateThread();
+  void CloseThread();
+
   WDL_ConvolutionEngine_Div m_zl_engine;
   WDL_ConvolutionEngine m_thread_engine;
 

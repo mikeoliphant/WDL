@@ -1125,7 +1125,7 @@ WDL_ConvolutionEngine_Thread::WDL_ConvolutionEngine_Thread()
   m_signal_thread = CreateEvent(NULL, FALSE, FALSE, NULL);
   m_signal_main = CreateEvent(NULL, FALSE, FALSE, NULL);
 
-  m_thread_state = true;
+  m_thread_state = m_signal_thread && m_signal_main;
 #else
   m_thread_state = false;
   WDL_CONVO_cond_init(&m_signal_thread, &m_signal_thread_cond, &m_signal_thread_mutex);
@@ -1185,28 +1185,11 @@ void WDL_ConvolutionEngine_Thread::Reset()
 
 WDL_ConvolutionEngine_Thread::~WDL_ConvolutionEngine_Thread()
 {
+  CloseThread();
 #ifdef _WIN32
-  if (m_thread)
-  {
-    if (m_thread_state)
-    {
-      m_thread_state = false;
-      SetEvent(m_signal_thread);
-      WaitForSingleObject(m_thread, INFINITE);
-    }
-    CloseHandle(m_thread);
-  }
   if (m_signal_thread) CloseHandle(m_signal_thread);
   if (m_signal_main) CloseHandle(m_signal_main);
 #else
-  if (m_thread_state)
-  {
-    m_thread_state = false;
-    WDL_CONVO_cond_signal(&m_signal_thread, &m_signal_thread_cond, &m_signal_thread_mutex);
-    void *tmp;
-    pthread_join(m_thread,&tmp);
-    pthread_detach(m_thread);
-  }
   WDL_CONVO_cond_destroy(&m_signal_thread_cond, &m_signal_thread_mutex);
   WDL_CONVO_cond_destroy(&m_signal_main_cond, &m_signal_main_mutex);
 #endif
@@ -1216,36 +1199,7 @@ void WDL_ConvolutionEngine_Thread::Add(WDL_FFT_REAL **bufs, int len, int nch)
 {
   m_proc_nch=nch;
 
-#ifdef _WIN32
-  if (!m_thread)
-  {
-    if (m_signal_thread && m_signal_main) m_thread = CreateThread(NULL, 0, ThreadProc, this, 0, NULL);
-    if (m_thread) SetThreadPriority(m_thread, THREAD_PRIORITY_ABOVE_NORMAL);
-  }
-#else
-  if (!m_thread_state)
-  {
-    m_thread_state = true;
-
-    m_thread=0;
-    pthread_create(&m_thread,NULL,ThreadProc,this);
-
-    static const int prio = 1;
-    int pol;
-    struct sched_param param;
-    if (!pthread_getschedparam(m_thread,&pol,&param))
-    {
-
-      param.sched_priority = 31 + prio;
-      int mt=sched_get_priority_min(pol);
-      if (param.sched_priority<mt||param.sched_priority > (mt=sched_get_priority_max(pol)))param.sched_priority=mt;
-
-      pthread_setschedparam(m_thread,pol,&param);
-    }
-  }
-#endif
-
-  if (WDL_CONVO_thread_state && m_thread_engine.m_zl_delaypos >= 0)
+  if (m_thread_engine.m_zl_delaypos >= 0 && CreateThread())
   {
     int ch;
     m_samplesin_lock.Enter();
@@ -1370,6 +1324,69 @@ int WDL_ConvolutionEngine_Thread::Avail(int wantSamples)
 
   av=m_samplesout2[0].Available()/sizeof(WDL_FFT_REAL);
   return av>wso ? wso : av;
+}
+
+bool WDL_ConvolutionEngine_Thread::CreateThread()
+{
+#ifdef _WIN32
+  if (!m_thread && m_thread_state)
+  {
+    m_thread = ::CreateThread(NULL, 0, ThreadProc, this, 0, NULL);
+    if (m_thread)
+      SetThreadPriority(m_thread, THREAD_PRIORITY_ABOVE_NORMAL);
+    else
+      m_thread_state = false;
+  }
+#else
+  if (!m_thread_state)
+  {
+    m_thread_state = true;
+
+    m_thread=0;
+    pthread_create(&m_thread,NULL,ThreadProc,this);
+
+    static const int prio = 1;
+    int pol;
+    struct sched_param param;
+    if (!pthread_getschedparam(m_thread,&pol,&param))
+    {
+
+      param.sched_priority = 31 + prio;
+      int mt=sched_get_priority_min(pol);
+      if (param.sched_priority<mt||param.sched_priority > (mt=sched_get_priority_max(pol)))param.sched_priority=mt;
+
+      pthread_setschedparam(m_thread,pol,&param);
+    }
+  }
+#endif
+  return m_thread_state;
+}
+
+void WDL_ConvolutionEngine_Thread::CloseThread()
+{
+#ifdef _WIN32
+  if (m_thread)
+  {
+    const bool state = m_thread_state;
+    if (state)
+    {
+      m_thread_state = false;
+      SetEvent(m_signal_thread);
+      WaitForSingleObject(m_thread, INFINITE);
+    }
+    if (CloseHandle(m_thread)) m_thread_state = state;
+    m_thread = NULL;
+  }
+#else
+  if (m_thread_state)
+  {
+    m_thread_state = false;
+    WDL_CONVO_cond_signal(&m_signal_thread, &m_signal_thread_cond, &m_signal_thread_mutex);
+    void *tmp;
+    pthread_join(m_thread,&tmp);
+    pthread_detach(m_thread);
+  }
+#endif
 }
 
 #ifdef _WIN32
