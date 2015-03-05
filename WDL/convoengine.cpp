@@ -37,6 +37,14 @@
 #define CONVOENGINE_SILENCE_THRESH 1.0e-12 // -240dB
 #define CONVOENGINE_IMPULSE_SILENCE_THRESH 1.0e-15 // -300dB
 
+#if !defined(WDL_CONVO_SSE) && !defined(WDL_CONVO_SSE3)
+  #if defined(__SSE3__)
+    #define WDL_CONVO_SSE3
+  #elif defined(__SSE__) || _M_IX86_FP >= 1 || defined(_M_X64) || defined(_M_AMD64)
+    #define WDL_CONVO_SSE
+  #endif
+#endif
+
 #if WDL_FFT_REALSIZE != 4 || defined(WDL_CONVO_WANT_FULLPRECISION_IMPULSE_STORAGE)
 #undef WDL_CONVO_SSE
 #undef WDL_CONVO_SSE3
