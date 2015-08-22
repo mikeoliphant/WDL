@@ -36,6 +36,10 @@
 #include "pcmfmtcvt.h"
 #include "wdlstring.h"
 
+#if defined(WAVEWRITER_MAX_NCH) && WAVEWRITER_MAX_NCH > 64
+#include "heapbuf.h"
+#endif
+
 class WaveWriter
 {
   public:
@@ -85,7 +89,7 @@ class WaveWriter
         fwrite(tbuf,1,44,m_fp); // room for header
       }
       m_bps=bps;
-      m_nch=nch>1?2:1;
+      m_nch=nch>1?nch:1;
       m_srate=srate;
 
       return !!m_fp;
@@ -232,14 +236,14 @@ class WaveWriter
 
       if (nchsrc < 1) nchsrc=m_nch;
 
-      float *tmpptrs[2]={samples[0]+offs,m_nch>1?(nchsrc>1?samples[1]+offs:samples[0]+offs):NULL};
+      float *stackbuf[STACKBUF_MAX_NCH], **tmpptrs=GetTmpPtrs(stackbuf,samples,offs,nchsrc);
+      if (!tmpptrs) return;
 
       if (m_bps == 16)
       {
         while (nsamples-->0)
         {          
-          int ch;
-          for (ch = 0; ch < m_nch; ch ++)
+          for (int ch = 0; ch < m_nch; ++ch)
           {
             short a;
             float_TO_INT16(a,tmpptrs[ch][0]);
@@ -255,8 +259,7 @@ class WaveWriter
       {
         while (nsamples-->0)
         {
-          int ch;
-          for (ch = 0; ch < m_nch; ch ++)
+          for (int ch = 0; ch < m_nch; ++ch)
           {
             unsigned char a[3];
             float_to_i24(tmpptrs[ch],a);
@@ -273,14 +276,14 @@ class WaveWriter
 
       if (nchsrc < 1) nchsrc=m_nch;
 
-      double *tmpptrs[2]={samples[0]+offs,m_nch>1?(nchsrc>1?samples[1]+offs:samples[0]+offs):NULL};
+      double *stackbuf[STACKBUF_MAX_NCH], **tmpptrs=GetTmpPtrs(stackbuf,samples,offs,nchsrc);
+      if (!tmpptrs) return;
 
       if (m_bps == 16)
       {
         while (nsamples-->0)
         {          
-          int ch;
-          for (ch = 0; ch < m_nch; ch ++)
+          for (int ch = 0; ch < m_nch; ++ch)
           {
             short a;
             double_TO_INT16(a,tmpptrs[ch][0]);
@@ -296,8 +299,7 @@ class WaveWriter
       {
         while (nsamples-->0)
         {
-          int ch;
-          for (ch = 0; ch < m_nch; ch ++)
+          for (int ch = 0; ch < m_nch; ++ch)
           {
             unsigned char a[3];
             double_to_i24(tmpptrs[ch],a);
@@ -314,6 +316,29 @@ class WaveWriter
     int get_bps() const { return m_bps; }
 
   private:
+    template <class T> T **GetTmpPtrs(T **stackbuf, T **samples, unsigned int offs, int nchsrc)
+    {
+    #if defined(WAVEWRITER_MAX_NCH) && WAVEWRITER_MAX_NCH > 64
+      T **tmpptrs=m_nch <= STACKBUF_MAX_NCH ? stackbuf : (T**)m_heapbuf.ResizeOK(nchsrc*sizeof(T*),false);
+      if (tmpptrs)
+    #else
+      T **tmpptrs=stackbuf;
+    #endif
+      for (int ch = 0; ch < m_nch; ++ch) tmpptrs[ch]=samples[ch%nchsrc]+offs;
+      return tmpptrs;
+    }
+
+    static const int STACKBUF_MAX_NCH=
+  #if !defined(WAVEWRITER_MAX_NCH) || WAVEWRITER_MAX_NCH > 64
+    64;
+  #else
+    WAVEWRITER_MAX_NCH;
+  #endif
+
+  #if defined(WAVEWRITER_MAX_NCH) && WAVEWRITER_MAX_NCH > 64
+    WDL_HeapBuf m_heapbuf;
+  #endif
+
     WDL_String m_fn;
     FILE *m_fp;
     int m_bps,m_nch,m_srate;
