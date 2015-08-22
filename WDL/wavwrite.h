@@ -23,7 +23,8 @@
 
 /*
 
-  This file provides a simple class for writing basic 16 or 24 bit PCM WAV files.
+  This file provides a simple class for writing basic 16 or 24 bit PCM, or
+  32 or 64 bit floating point WAV files.
  
 */
 
@@ -108,7 +109,7 @@ class WaveWriter
         unsigned int riff_size=bytelen+44-8;
         fputi32(riff_size,m_fp);
         fwrite("WAVEfmt \x10\0\0\0",1,12,m_fp);
-  			fwrite("\1\0",1,2,m_fp); // PCM
+        fwrite(m_bps<32?"\1\0":"\3\0",1,2,m_fp); // PCM or float
 
         fputi16(m_nch,m_fp); // nch
         fputi32(m_srate,m_fp); // srate
@@ -168,6 +169,23 @@ class WaveWriter
           samples++;
         }
       }
+      else if (m_bps == 32)
+      {
+        while (nsamples-->0)
+        {
+          fputi32(*(unsigned int*)samples,m_fp);
+          samples++;
+        }
+      }
+      else if (m_bps == 64)
+      {
+        while (nsamples-->0)
+        {
+          const double a=*samples;
+          fputi64(*(WDL_UINT64*)&a,m_fp);
+          samples++;
+        }
+      }
     }
 
     void WriteDoubles(double *samples, unsigned int nsamples)
@@ -191,6 +209,23 @@ class WaveWriter
           unsigned char a[3];
           double_to_i24(samples,a);
           fwrite(a,1,3,m_fp);
+          samples++;
+        }
+      }
+      else if (m_bps == 32)
+      {
+        while (nsamples-->0)
+        {
+          const float a=(float)*samples;
+          fputi32(*(unsigned int*)&a,m_fp);
+          samples++;
+        }
+      }
+      else if (m_bps == 64)
+      {
+        while (nsamples-->0)
+        {
+          fputi64(*(WDL_UINT64*)samples,m_fp);
           samples++;
         }
       }
@@ -231,6 +266,29 @@ class WaveWriter
           }
         }
       }
+      else if (m_bps == 32)
+      {
+        while (nsamples-->0)
+        {
+          for (int ch = 0; ch < m_nch; ++ch)
+          {
+            fputi32(*(unsigned int*)tmpptrs[ch],m_fp);
+            tmpptrs[ch]++;
+          }
+        }
+      }
+      else if (m_bps == 64)
+      {
+        while (nsamples-->0)
+        {
+          for (int ch = 0; ch < m_nch; ++ch)
+          {
+            const double a=tmpptrs[ch][0];
+            fputi64(*(WDL_UINT64*)&a,m_fp);
+            tmpptrs[ch]++;
+          }
+        }
+      }
     }
 
     void WriteDoublesNI(double **samples, unsigned int offs, unsigned int nsamples, int nchsrc=0)
@@ -264,6 +322,29 @@ class WaveWriter
             unsigned char a[3];
             double_to_i24(tmpptrs[ch],a);
             fwrite(a,1,3,m_fp);
+            tmpptrs[ch]++;
+          }
+        }
+      }
+      else if (m_bps == 32)
+      {
+        while (nsamples-->0)
+        {
+          for (int ch = 0; ch < m_nch; ++ch)
+          {
+            const float a=(float)tmpptrs[ch][0];
+            fputi32(*(unsigned int*)&a,m_fp);
+            tmpptrs[ch]++;
+          }
+        }
+      }
+      else if (m_bps == 64)
+      {
+        while (nsamples-->0)
+        {
+          for (int ch = 0; ch < m_nch; ++ch)
+          {
+            fputi64(*(WDL_UINT64*)tmpptrs[ch],m_fp);
             tmpptrs[ch]++;
           }
         }
