@@ -23,8 +23,8 @@
 
 /*
 
-  This file provides a simple class for writing basic 16 or 24 bit PCM, or
-  32 or 64 bit floating point WAV files.
+  This file provides a simple class for writing basic 8, 16 or 24 bit PCM,
+  or 32 or 64 bit floating point WAV files.
  
 */
 
@@ -151,7 +151,17 @@ class WaveWriter
     {
       if (!m_fp) return;
 
-      if (m_bps == 16)
+      if (m_bps == 8)
+      {
+        while (nsamples-->0)
+        {
+          int a;
+          float_TO_UINT8(a,*samples);
+          fputc(a,m_fp);
+          samples++;
+        }
+      }
+      else if (m_bps == 16)
       {
         while (nsamples-->0)
         {
@@ -198,7 +208,17 @@ class WaveWriter
     {
       if (!m_fp) return;
 
-      if (m_bps == 16)
+      if (m_bps == 8)
+      {
+        while (nsamples-->0)
+        {
+          int a;
+          double_TO_UINT8(a,*samples);
+          fputc(a,m_fp);
+          samples++;
+        }
+      }
+      else if (m_bps == 16)
       {
         while (nsamples-->0)
         {
@@ -250,7 +270,20 @@ class WaveWriter
       float *stackbuf[STACKBUF_MAX_NCH], **tmpptrs=GetTmpPtrs(stackbuf,samples,offs,nchsrc);
       if (!tmpptrs) return;
 
-      if (m_bps == 16)
+      if (m_bps == 8)
+      {
+        while (nsamples-->0)
+        {
+          for (int ch = 0; ch < m_nch; ++ch)
+          {
+            int a;
+            float_TO_UINT8(a,tmpptrs[ch][0]);
+            fputc(a,m_fp);
+            tmpptrs[ch]++;
+          }
+        }
+      }
+      else if (m_bps == 16)
       {
         while (nsamples-->0)
         {          
@@ -310,7 +343,20 @@ class WaveWriter
       double *stackbuf[STACKBUF_MAX_NCH], **tmpptrs=GetTmpPtrs(stackbuf,samples,offs,nchsrc);
       if (!tmpptrs) return;
 
-      if (m_bps == 16)
+      if (m_bps == 8)
+      {
+        while (nsamples-->0)
+        {
+          for (int ch = 0; ch < m_nch; ++ch)
+          {
+            int a;
+            double_TO_UINT8(a,tmpptrs[ch][0]);
+            fputc(a,m_fp);
+            tmpptrs[ch]++;
+          }
+        }
+      }
+      else if (m_bps == 16)
       {
         while (nsamples-->0)
         {          
