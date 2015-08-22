@@ -153,9 +153,9 @@ class WaveWriter
       Close();
     }
 
-    const char *GetFileName() { return m_fn.Get(); }
+    const char *GetFileName() const { return m_fn.Get(); }
 
-    int Status() { return !!m_fp; }
+    int Status() const { return !!m_fp; }
 
     int BytesWritten()
     {
@@ -309,9 +309,9 @@ class WaveWriter
     }
 
 
-    int get_nch() { return m_nch; } 
-    int get_srate() { return m_srate; }
-    int get_bps() { return m_bps; }
+    int get_nch() const { return m_nch; } 
+    int get_srate() const { return m_srate; }
+    int get_bps() const { return m_bps; }
 
   private:
     WDL_String m_fn;
