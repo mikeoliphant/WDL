@@ -91,7 +91,7 @@ class WaveWriter
       return !!m_fp;
     }
 
-    ~WaveWriter()
+    void Close()
     {
       if (m_fp)
       {
@@ -146,6 +146,11 @@ class WaveWriter
         fclose(m_fp);
         m_fp=0;
       }
+    }
+
+    ~WaveWriter()
+    {
+      Close();
     }
 
     const char *GetFileName() { return m_fn.Get(); }
