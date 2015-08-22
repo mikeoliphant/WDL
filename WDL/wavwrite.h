@@ -33,6 +33,8 @@
 #define _WAVWRITE_H_
 
 
+//#include "wdlendian.h" // include for faster endian conversion
+
 #include <stdio.h>
 #include "pcmfmtcvt.h"
 #include "wdlstring.h"
@@ -171,11 +173,15 @@ class WaveWriter
       }
       else if (m_bps == 32)
       {
+      #ifdef WDL_LITTLE_ENDIAN
+        fwrite(samples,1,nsamples*4,m_fp);
+      #else
         while (nsamples-->0)
         {
           fputi32(*(unsigned int*)samples,m_fp);
           samples++;
         }
+      #endif
       }
       else if (m_bps == 64)
       {
@@ -223,11 +229,15 @@ class WaveWriter
       }
       else if (m_bps == 64)
       {
+      #ifdef WDL_LITTLE_ENDIAN
+        fwrite(samples,1,nsamples*8,m_fp);
+      #else
         while (nsamples-->0)
         {
           fputi64(*(WDL_UINT64*)samples,m_fp);
           samples++;
         }
+      #endif
       }
     }
 
@@ -359,23 +369,38 @@ class WaveWriter
   private:
     static int fputi16(unsigned short a, FILE *fp)
     {
+    #if defined(WDL_LITTLE_ENDIAN) || defined(WDL_BIG_ENDIAN)
+      WDL_BSWAP16_IF_BE(a);
+      return fwrite(&a,1,2,fp);
+    #else
       unsigned char buf[2];
       buf[0]=a&0xff; buf[1]=a>>8;
       return fwrite(buf,1,2,fp);
+    #endif
     }
 
     static int fputi32(unsigned int a, FILE *fp)
     {
+    #if defined(WDL_LITTLE_ENDIAN) || defined(WDL_BIG_ENDIAN)
+      WDL_BSWAP32_IF_BE(a);
+      return fwrite(&a,1,4,fp);
+    #else
       unsigned char buf[4], *p = buf;
       for (int x = 0; x < 32; x += 8) *p++=(a>>x)&0xff;
       return fwrite(buf,1,4,fp);
+    #endif
     }
 
     static int fputi64(WDL_UINT64 a, FILE *fp)
     {
+    #if defined(WDL_LITTLE_ENDIAN) || defined(WDL_BIG_ENDIAN)
+      WDL_BSWAP64_IF_BE(a);
+      return fwrite(&a,1,8,fp);
+    #else
       unsigned char buf[8], *p = buf;
       for (int x = 0; x < 64; x += 8) *p++=(a>>x)&0xff;
       return fwrite(buf,1,8,fp);
+    #endif
     }
 
     template <class T> T **GetTmpPtrs(T **stackbuf, T **samples, unsigned int offs, int nchsrc)
