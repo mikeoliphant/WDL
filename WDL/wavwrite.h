@@ -95,12 +95,12 @@ class WaveWriter
     {
       if (m_fp)
       {
-        int bytelen=ftell(m_fp)-44;
+        unsigned int bytelen=ftell(m_fp)-44;
         fseek(m_fp,0,SEEK_SET);
 
         // write header
         fwrite("RIFF",1,4,m_fp);
-        int riff_size=bytelen+44-8;
+        unsigned int riff_size=bytelen+44-8;
         int x;
         for (x = 0; x < 32; x += 8)
         {
@@ -168,7 +168,7 @@ class WaveWriter
       if (m_fp) fwrite(buf,1,len,m_fp);
     }
 
-    void WriteFloats(float *samples, int nsamples)
+    void WriteFloats(float *samples, unsigned int nsamples)
     {
       if (!m_fp) return;
 
@@ -197,7 +197,7 @@ class WaveWriter
       }
     }
 
-    void WriteDoubles(double *samples, int nsamples)
+    void WriteDoubles(double *samples, unsigned int nsamples)
     {
       if (!m_fp) return;
 
@@ -226,7 +226,7 @@ class WaveWriter
       }
     }
 
-    void WriteFloatsNI(float **samples, int offs, int nsamples, int nchsrc=0)
+    void WriteFloatsNI(float **samples, unsigned int offs, unsigned int nsamples, int nchsrc=0)
     {
       if (!m_fp) return;
 
@@ -267,7 +267,7 @@ class WaveWriter
       }
     }
 
-    void WriteDoublesNI(double **samples, int offs, int nsamples, int nchsrc=0)
+    void WriteDoublesNI(double **samples, unsigned int offs, unsigned int nsamples, int nchsrc=0)
     {
       if (!m_fp) return;
 
