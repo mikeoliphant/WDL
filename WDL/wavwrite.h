@@ -35,6 +35,7 @@
 #include <stdio.h>
 #include "pcmfmtcvt.h"
 #include "wdlstring.h"
+#include "wdltypes.h"
 
 #if defined(WAVEWRITER_MAX_NCH) && WAVEWRITER_MAX_NCH > 64
 #include "heapbuf.h"
@@ -105,47 +106,18 @@ class WaveWriter
         // write header
         fwrite("RIFF",1,4,m_fp);
         unsigned int riff_size=bytelen+44-8;
-        int x;
-        for (x = 0; x < 32; x += 8)
-        {
-          unsigned char c=(riff_size>>x)&255;
-          fwrite(&c,1,1,m_fp);
-        }
+        fputi32(riff_size,m_fp);
         fwrite("WAVEfmt \x10\0\0\0",1,12,m_fp);
   			fwrite("\1\0",1,2,m_fp); // PCM
 
-        for (x = 0; x < 16; x += 8) // nch
-        {
-          char c=(m_nch>>x)&255;
-          fwrite(&c,1,1,m_fp);
-        }
-        for (x = 0; x < 32; x += 8) // srate
-        {
-          char c=(m_srate>>x)&255;
-          fwrite(&c,1,1,m_fp);
-        }
-        for (x = 0; x < 32; x += 8) // bytes_per_sec
-        {
-          char c=((m_nch * (m_bps/8) * m_srate)>>x)&255;
-          fwrite(&c,1,1,m_fp);
-        }
+        fputi16(m_nch,m_fp); // nch
+        fputi32(m_srate,m_fp); // srate
+        fputi32(m_nch * (m_bps/8) * m_srate,m_fp); // bytes_per_sec
         int blockalign=m_nch * (m_bps/8);
-        for (x = 0; x < 16; x += 8) // block alignment
-        {
-          char c=(blockalign>>x)&255;
-          fwrite(&c,1,1,m_fp);
-        }
-        for (x = 0; x < 16; x += 8) // bits/sample
-        {
-          char c=((m_bps&~7)>>x)&255;
-          fwrite(&c,1,1,m_fp);
-        }
+        fputi16(blockalign,m_fp); // block alignment
+        fputi16(m_bps&~7,m_fp); // bits/sample
         fwrite("data",1,4,m_fp);
-        for (x = 0; x < 32; x += 8) // size
-        {
-          char c=((bytelen)>>x)&255;
-          fwrite(&c,1,1,m_fp);
-        }                
+        fputi32(bytelen,m_fp); // size
 
         fclose(m_fp);
         m_fp=0;
@@ -182,10 +154,7 @@ class WaveWriter
         {
           short a;
           float_TO_INT16(a,*samples);
-          unsigned char c=a&0xff;
-          fwrite(&c,1,1,m_fp);
-          c=a>>8;
-          fwrite(&c,1,1,m_fp);
+          fputi16(a,m_fp);
           samples++;
         }
       }
@@ -211,10 +180,7 @@ class WaveWriter
         {
           short a;
           double_TO_INT16(a,*samples);
-          unsigned char c=a&0xff;
-          fwrite(&c,1,1,m_fp);
-          c=a>>8;
-          fwrite(&c,1,1,m_fp);
+          fputi16(a,m_fp);
           samples++;
         }
       }
@@ -247,10 +213,7 @@ class WaveWriter
           {
             short a;
             float_TO_INT16(a,tmpptrs[ch][0]);
-            unsigned char c=a&0xff;
-            fwrite(&c,1,1,m_fp);
-            c=a>>8;
-            fwrite(&c,1,1,m_fp);
+            fputi16(a,m_fp);
             tmpptrs[ch]++;
           }
         }
@@ -287,10 +250,7 @@ class WaveWriter
           {
             short a;
             double_TO_INT16(a,tmpptrs[ch][0]);
-            unsigned char c=a&0xff;
-            fwrite(&c,1,1,m_fp);
-            c=a>>8;
-            fwrite(&c,1,1,m_fp);
+            fputi16(a,m_fp);
             tmpptrs[ch]++;
           }
         }
@@ -316,6 +276,27 @@ class WaveWriter
     int get_bps() const { return m_bps; }
 
   private:
+    static int fputi16(unsigned short a, FILE *fp)
+    {
+      unsigned char buf[2];
+      buf[0]=a&0xff; buf[1]=a>>8;
+      return fwrite(buf,1,2,fp);
+    }
+
+    static int fputi32(unsigned int a, FILE *fp)
+    {
+      unsigned char buf[4], *p = buf;
+      for (int x = 0; x < 32; x += 8) *p++=(a>>x)&0xff;
+      return fwrite(buf,1,4,fp);
+    }
+
+    static int fputi64(WDL_UINT64 a, FILE *fp)
+    {
+      unsigned char buf[8], *p = buf;
+      for (int x = 0; x < 64; x += 8) *p++=(a>>x)&0xff;
+      return fwrite(buf,1,8,fp);
+    }
+
     template <class T> T **GetTmpPtrs(T **stackbuf, T **samples, unsigned int offs, int nchsrc)
     {
     #if defined(WAVEWRITER_MAX_NCH) && WAVEWRITER_MAX_NCH > 64
