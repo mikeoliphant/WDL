@@ -873,9 +873,25 @@ STANDARD_CONTROL_NEEDSDISPLAY_IMPL
       case LB_GETTEXT:
         if (lParam)
         {
-          ListView_GetItemText(hwnd,wParam,0,(char *)lParam,4096);
+          SWELL_ListView_Row *row=self->m_items ? self->m_items->Get(wParam) : NULL;
+          *(char *)lParam = 0;
+          if (row && row->m_vals.Get(0))
+          {
+            strcpy((char *)lParam, row->m_vals.Get(0));
+            return (LRESULT)strlen(row->m_vals.Get(0));
+          }
         }
-      return 0;
+      return LB_ERR;
+      case LB_GETTEXTLEN:
+        {
+          SWELL_ListView_Row *row=self->m_items ? self->m_items->Get(wParam) : NULL;
+          if (row) 
+          {
+            const char *p=row->m_vals.Get(0);
+            return p?strlen(p):0;
+          }
+        }
+      return LB_ERR;
       case LB_GETSEL:
         return !!(ListView_GetItemState(hwnd,wParam,LVIS_SELECTED)&LVIS_SELECTED);
       case LB_GETCURSEL:
@@ -1493,7 +1509,8 @@ LRESULT SendMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
           case CB_DELETESTRING: SWELL_CB_DeleteString(hwnd,0,wParam); return 1;
           case CB_GETCOUNT: return SWELL_CB_GetNumItems(hwnd,0);
           case CB_GETCURSEL: return SWELL_CB_GetCurSel(hwnd,0);
-          case CB_GETLBTEXT: return SWELL_CB_GetItemText(hwnd,0,wParam,(char *)lParam, 1024);  
+          case CB_GETLBTEXT: return SWELL_CB_GetItemText(hwnd,0,wParam,(char *)lParam, 1<<20);
+          case CB_GETLBTEXTLEN: return SWELL_CB_GetItemText(hwnd,0,wParam,NULL,0);
           case CB_INSERTSTRING: return SWELL_CB_InsertString(hwnd,0,wParam,(char *)lParam);
           case CB_RESETCONTENT: SWELL_CB_Empty(hwnd,0); return 0;
           case CB_SETCURSEL: SWELL_CB_SetCurSel(hwnd,0,wParam); return 0;
@@ -2528,18 +2545,19 @@ int SWELL_CB_GetItemText(HWND hwnd, int idx, int item, char *buf, int bufsz)
 {
   NSComboBox *p=(NSComboBox *)GetDlgItem(hwnd,idx);
 
-  *buf=0;
-  if (!p) return 0;
+  if (buf) *buf=0;
+  if (!p) return CB_ERR;
   int ni=[p numberOfItems];
-  if (item < 0 || item >= ni) return 0;
+  if (item < 0 || item >= ni) return CB_ERR;
   
   if ([p isKindOfClass:[NSComboBox class]])
   {
     NSString *s=[p itemObjectValueAtIndex:item];
     if (s)
     {
+      if (!buf) return [s lengthOfBytesUsingEncoding:NSUTF8StringEncoding] + 64;
+
       SWELL_CFStringToCString(s,buf,bufsz);
-//      [s getCString:buf maxLength:bufsz];
       return 1;
     }
   }
@@ -2551,13 +2569,14 @@ int SWELL_CB_GetItemText(HWND hwnd, int idx, int item, char *buf, int bufsz)
       NSString *s=[i title];
       if (s)
       {
+        if (!buf) return [s lengthOfBytesUsingEncoding:NSUTF8StringEncoding] + 64;
+
         SWELL_CFStringToCString(s,buf,bufsz);
-//        [s getCString:buf maxLength:bufsz];
         return 1;
       }
     }
   }
-  return 0;
+  return CB_ERR;
 }
 
 
@@ -2625,8 +2644,23 @@ int SWELL_CB_GetCurSel(HWND hwnd, int idx)
 
 void SWELL_CB_SetCurSel(HWND hwnd, int idx, int item)
 {
-  if (item >= SWELL_CB_GetNumItems(hwnd,idx)) item=-1;
-  [(NSComboBox *)GetDlgItem(hwnd,idx) selectItemAtIndex:item];
+  NSComboBox *cb = (NSComboBox *)GetDlgItem(hwnd,idx);
+  if (!cb) return;
+
+  if (item < 0 || item >= [cb numberOfItems])
+  {
+    // combo boxes can be NSComboBox or NSPopupButton, NSComboBox needs
+    // a different deselect method (selectItemAtIndex:-1 throws an exception)
+    if ([cb isKindOfClass:[NSComboBox class]])
+    {
+      const int sel = [cb indexOfSelectedItem];
+      if (sel>=0) [cb deselectItemAtIndex:sel];
+    }
+    else if ([cb isKindOfClass:[NSPopUpButton class]])
+      [(NSPopUpButton*)cb selectItemAtIndex:-1];
+  }
+  else
+    [cb selectItemAtIndex:item];
 }
 
 int SWELL_CB_GetNumItems(HWND hwnd, int idx)
@@ -3329,6 +3363,7 @@ HWND SWELL_MakeControl(const char *cname, int idx, const char *classname, int st
     [obj setFrame:MakeCoords(x,y,w,h,false)];
     if (style&SWELL_NOT_WS_VISIBLE) [obj setHidden:YES];
     [m_make_owner addSubview:obj];
+    SetAllowNoMiddleManRendering((HWND)m_make_owner,FALSE);
     [obj release];
     return (HWND)obj;
   }
@@ -4389,7 +4424,7 @@ BOOL ListView_SetColumnOrderArray(HWND h, int cnt, int* arr)
   {
     int pos=[lv getColumnPos:i];
     int dest=arr[i];
-    [lv moveColumn:pos toColumn:dest];
+    if (dest>=0 && dest<cnt) [lv moveColumn:pos toColumn:dest];
   }
 
   return TRUE;
@@ -4590,8 +4625,14 @@ int ListView_GetTopIndex(HWND h)
   NSScrollView* sv = [tv enclosingScrollView];
   if (!sv) return -1;  
   
-  NSRect tvr = [sv documentVisibleRect];
-  NSPoint pt = { 0, tvr.origin.y };  
+  NSPoint pt = { 0, 0 };
+  NSView *hdr = [tv headerView];
+  if (hdr && ![hdr isHidden])
+  {
+    NSRect fr=[hdr frame];
+    if (fr.size.height > 0.0) pt.y = fr.origin.y + fr.size.height;
+  }
+  pt.y += [sv documentVisibleRect].origin.y;
   return [tv rowAtPoint:pt];      
 }
 
@@ -4626,22 +4667,31 @@ bool ListView_Scroll(HWND h, int xscroll, int yscroll)
   if (colidx < 0) colidx=0;
   else if (colidx >= [tv numberOfColumns]) colidx = [tv numberOfColumns]-1;
 
+  // colidx is our column index, NOT the display order, convert
+  if ([tv isKindOfClass:[SWELL_ListView class]]) colidx = [(SWELL_ListView*)tv getColumnPos:colidx];
+
   NSRect ir = [tv frameOfCellAtColumn:colidx row:rowidx];
-  if (ir.size.width) xscroll /= ir.size.width;
-  else xscroll = 0;
-  if (ir.size.height) yscroll /= ir.size.height;
-  else yscroll = 0;
+
+  if (yscroll)
+  {
+    if (ir.size.height) rowidx += yscroll / ir.size.height;
+
+    if (rowidx < 0) rowidx=0;
+    else if (rowidx >= [tv numberOfRows]) rowidx = [tv numberOfRows]-1;
+    [tv scrollRowToVisible:rowidx];
+  }
+  
+  if (xscroll)
+  {
+    if (ir.size.width) colidx += xscroll / ir.size.width;
    
-  rowidx += yscroll;
-  if (rowidx < 0) rowidx=0;
-  else if (rowidx >= [tv numberOfRows]) rowidx = [tv numberOfRows]-1;
+    if (colidx < 0) colidx=0;
+    else if (colidx >= [tv numberOfColumns]) colidx = [tv numberOfColumns]-1;
+
+    // scrollColumnToVisible takes display order, which we have here
+    [tv scrollColumnToVisible:colidx];
+  }
   
-  colidx += xscroll;
-  if (colidx < 0) colidx=0;
-  else if (colidx >= [tv numberOfColumns]) colidx = [tv numberOfColumns]-1;
-  
-  [tv scrollRowToVisible:rowidx];
-  [tv scrollColumnToVisible:colidx];
   
   return true;
 }
@@ -6071,6 +6121,13 @@ int SWELL_SetWindowLevel(HWND hwnd, int newlevel)
     return ol;
   }
   return 0;
+}
+
+void SetAllowNoMiddleManRendering(HWND h, bool allow)
+{
+  if (!h || ![(id)h isKindOfClass:[SWELL_hwndChild class]]) return;
+  SWELL_hwndChild* v = (SWELL_hwndChild*)h;
+  v->m_allow_nomiddleman = allow;
 }
 
 void SetOpaque(HWND h, bool opaque)

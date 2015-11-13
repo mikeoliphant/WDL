@@ -365,6 +365,8 @@ static LRESULT SendMouseMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
     if (htc!=HTCLIENT) 
     { 
       if (msg==WM_MOUSEMOVE) return hwnd->m_wndproc(hwnd,WM_NCMOUSEMOVE,htc,p); 
+//      if (msg==WM_MOUSEWHEEL) return hwnd->m_wndproc(hwnd,WM_NCMOUSEWHEEL,htc,p); 
+//      if (msg==WM_MOUSEHWHEEL) return hwnd->m_wndproc(hwnd,WM_NCMOUSEHWHEEL,htc,p); 
       if (msg==WM_LBUTTONUP) return hwnd->m_wndproc(hwnd,WM_NCLBUTTONUP,htc,p); 
       if (msg==WM_LBUTTONDOWN) return hwnd->m_wndproc(hwnd,WM_NCLBUTTONDOWN,htc,p); 
       if (msg==WM_LBUTTONDBLCLK) return hwnd->m_wndproc(hwnd,WM_NCLBUTTONDBLCLK,htc,p); 
@@ -535,20 +537,38 @@ static void swell_gdkEventHandler(GdkEvent *evt, gpointer data)
           {
             GdkEventMotion *m = (GdkEventMotion *)evt;
             s_lastMessagePos = MAKELONG(((int)m->x_root&0xffff),((int)m->y_root&0xffff));
-//            printf("motion %d %d %d %d\n", (int)m->x, (int)m->y, (int)m->x_root, (int)m->y_root); 
             POINT p={m->x, m->y};
             HWND hwnd2 = GetCapture();
             if (!hwnd2) hwnd2=ChildWindowFromPoint(hwnd, p);
-//char buf[1024];
-//GetWindowText(hwnd2,buf,sizeof(buf));
- //           printf("%x %s\n", hwnd2,buf);
             POINT p2={m->x_root, m->y_root};
             ScreenToClient(hwnd2, &p2);
-            //printf("%d %d\n", p2.x, p2.y);
             if (hwnd2) hwnd2->Retain();
             SendMouseMessage(hwnd2, WM_MOUSEMOVE, 0, MAKELPARAM(p2.x, p2.y));
             if (hwnd2) hwnd2->Release();
             gdk_event_request_motions(m);
+          }
+        break;
+        case GDK_SCROLL:
+          {
+            GdkEventScroll *b = (GdkEventScroll *)evt;
+            s_lastMessagePos = MAKELONG(((int)b->x_root&0xffff),((int)b->y_root&0xffff));
+            POINT p={b->x, b->y};
+            HWND hwnd2 = GetCapture();
+            if (!hwnd2) hwnd2=ChildWindowFromPoint(hwnd, p);
+            POINT p2={b->x_root, b->y_root};
+            // p2 is screen coordinates for WM_MOUSEWHEEL
+
+            int msg=(b->direction == GDK_SCROLL_UP || b->direction == GDK_SCROLL_DOWN) ? WM_MOUSEWHEEL :
+                    (b->direction == GDK_SCROLL_LEFT || b->direction == GDK_SCROLL_RIGHT) ? WM_MOUSEHWHEEL : 0;
+            
+            if (msg) 
+            {
+              int v = (b->direction == GDK_SCROLL_UP || b->direction == GDK_SCROLL_LEFT) ? 120 : -120;
+ 
+              if (hwnd2) hwnd2->Retain();
+              SendMouseMessage(hwnd2, msg, (v<<16), MAKELPARAM(p2.x, p2.y));
+              if (hwnd2) hwnd2->Release();
+            }
           }
         break;
         case GDK_BUTTON_PRESS:
@@ -557,14 +577,12 @@ static void swell_gdkEventHandler(GdkEvent *evt, gpointer data)
           {
             GdkEventButton *b = (GdkEventButton *)evt;
             s_lastMessagePos = MAKELONG(((int)b->x_root&0xffff),((int)b->y_root&0xffff));
-//            printf("button %d %d %d %d %d\n", evt->type, (int)b->x, (int)b->y, (int)b->x_root, (int)b->y_root); 
             POINT p={b->x, b->y};
             HWND hwnd2 = GetCapture();
             if (!hwnd2) hwnd2=ChildWindowFromPoint(hwnd, p);
-//            printf("%x\n", hwnd2);
             POINT p2={b->x_root, b->y_root};
             ScreenToClient(hwnd2, &p2);
-            //printf("%d %d\n", p2.x, p2.y);
+
             int msg=WM_LBUTTONDOWN;
             if (b->button==2) msg=WM_MBUTTONDOWN;
             else if (b->button==3) msg=WM_RBUTTONDOWN;
@@ -575,6 +593,7 @@ static void swell_gdkEventHandler(GdkEvent *evt, gpointer data)
 
             if(evt->type == GDK_BUTTON_RELEASE) msg++; // move from down to up
             else if(evt->type == GDK_2BUTTON_PRESS) msg+=2; // move from down to up
+
             if (hwnd2) hwnd2->Retain();
             SendMouseMessage(hwnd2, msg, 0, MAKELPARAM(p2.x, p2.y));
             if (hwnd2) hwnd2->Release();
@@ -1194,39 +1213,43 @@ void SetWindowPos(HWND hwnd, HWND zorder, int x, int y, int cx, int cy, int flag
   {
     if (hwnd->m_parent && zorder != hwnd)
     {
-      HWND tmp = hwnd->m_parent->m_children;
+      HWND par = hwnd->m_parent;
+      HWND tmp = par->m_children;
       while (tmp && tmp != hwnd) tmp=tmp->m_next;
       if (tmp) // we are in the list, so we can do a reorder
       {
         // take hwnd out of list
         if (hwnd->m_prev) hwnd->m_prev->m_next = hwnd->m_next;
-        else hwnd->m_parent->m_children = hwnd->m_next;
+        else par->m_children = hwnd->m_next;
         if (hwnd->m_next) hwnd->m_next->m_prev = hwnd->m_prev;
         hwnd->m_next=hwnd->m_prev=NULL;// leave hwnd->m_parent valid since it wont change
 
         // add back in
-        tmp = hwnd->m_parent->m_children;
+        tmp = par->m_children;
         if (zorder == HWND_TOP || !tmp || tmp == zorder) // no children, topmost, or zorder is at top already
         {
           if (tmp) tmp->m_prev=hwnd;
           hwnd->m_next = tmp;
-          hwnd->m_parent->m_children = hwnd;
+          par->m_children = hwnd;
         }
         else if (zorder == HWND_BOTTOM) 
         {
+addToBottom:
           while (tmp && tmp->m_next) tmp=tmp->m_next;
           tmp->m_next=hwnd; 
           hwnd->m_prev=tmp;
         }
         else
         {
-          HWND ltmp=NULL;
-          while (tmp && tmp != zorder) tmp=(ltmp=tmp)->m_next;
+          while (tmp && tmp != zorder) tmp=tmp->m_next;
+          if (!tmp) goto addToBottom;
 
-          hwnd->m_next = ltmp->m_next;
-          hwnd->m_prev = ltmp;
-          if (ltmp->m_next) ltmp->m_next->m_prev = hwnd;
-          ltmp->m_next = hwnd;
+          HWND next = zorder->m_next;
+          hwnd->m_next = next;
+          if (next) next->m_prev = hwnd;
+
+          zorder->m_next = hwnd;
+          hwnd->m_prev = zorder;
         }
         reposflag|=4;
       }
@@ -1284,15 +1307,14 @@ HWND GetWindow(HWND hwnd, int what)
   
   if (what == GW_CHILD) return hwnd->m_children;
   if (what == GW_OWNER) return hwnd->m_owner;
-  // next/prev, first/last are swapped internally
-  if (what == GW_HWNDNEXT) return hwnd->m_prev;
-  if (what == GW_HWNDPREV) return hwnd->m_next;
-  if (what == GW_HWNDLAST) 
+  if (what == GW_HWNDNEXT) return hwnd->m_next;
+  if (what == GW_HWNDPREV) return hwnd->m_prev;
+  if (what == GW_HWNDFIRST) 
   { 
     while (hwnd->m_prev) hwnd = hwnd->m_prev;
     return hwnd;
   }
-  if (what == GW_HWNDFIRST) 
+  if (what == GW_HWNDLAST) 
   { 
     while (hwnd->m_next) hwnd = hwnd->m_next;
     return hwnd;
@@ -2200,16 +2222,16 @@ static LRESULT WINAPI comboWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
         case CB_GETCOUNT: return s->items.GetSize();
         case CB_GETCURSEL: return s->selidx >=0 && s->selidx < s->items.GetSize() ? s->selidx : -1;
 
+        case CB_GETLBTEXTLEN: 
         case CB_GETLBTEXT: 
           if (wParam < (WPARAM)s->items.GetSize()) 
           {
-            if (lParam)
-            {
-              char *ptr=s->items.Get(wParam)->desc;
-              int l = strlen(ptr);
-              memcpy((char *)lParam,ptr,l+1);
-              return l;
-            }
+            __SWELL_ComboBoxInternalState_rec *rec = s->items.Get(wParam);
+            if (!rec) return CB_ERR;
+            const char *ptr=rec->desc;
+            int l = ptr ? strlen(ptr) : 0;
+            if (msg == CB_GETLBTEXT && lParam) memcpy((char *)lParam,ptr?ptr:"",l+1);
+            return l;
           }
         return CB_ERR;
         case CB_RESETCONTENT:
@@ -2768,6 +2790,16 @@ static LRESULT listViewWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
           return (LRESULT)strlen(row->m_vals.Get(0));
         }
       }
+    return LB_ERR;
+    case LB_GETTEXTLEN:
+        {
+          SWELL_ListView_Row *row=lvs->m_data.Get(wParam);
+          if (row) 
+          {
+            const char *p=row->m_vals.Get(0);
+            return p?strlen(p):0;
+          }
+        }
     return LB_ERR;
     case LB_RESETCONTENT:
       if (lvs && !lvs->IsOwnerData())
@@ -4041,6 +4073,13 @@ LRESULT DefWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         SendMessage(hwnd,WM_CONTEXTMENU,(WPARAM)hwndDest,(p.x&0xffff)|(p.y<<16));
       }
     return 1;
+    case WM_MOUSEWHEEL:
+    case WM_MOUSEHWHEEL:
+      {
+        HWND par = GetParent(hwnd);
+        if (par) return SendMessage(par,msg,wParam,lParam); // forward to parent
+      }
+    break;
 //    case WM_NCLBUTTONDOWN:
     case WM_NCLBUTTONUP:
       if (!hwnd->m_parent && hwnd->m_menu)
@@ -4769,6 +4808,9 @@ int SWELL_SetWindowLevel(HWND hwnd, int newlevel)
   return 0;
 }
 void SetOpaque(HWND h, bool opaque)
+{
+}
+void SetAllowNoMiddleManRendering(HWND h, bool allow)
 {
 }
 int SWELL_GetDefaultButtonID(HWND hwndDlg, bool onlyIfEnabled)

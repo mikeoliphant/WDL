@@ -36,7 +36,11 @@ static LRESULT sendSwellMessage(id obj, UINT uMsg, WPARAM wParam, LPARAM lParam)
 }
 
 
-static BOOL useNoMiddleManCocoa() { return SWELL_GetOSXVersion() >= 0x1050; }
+static BOOL useNoMiddleManCocoa() 
+{ 
+  const int v = SWELL_GetOSXVersion();
+  return v >= 0x1050 && v < 0x10a0; // no middleman on 10.4, or 10.10+
+}
 
 void updateWindowCollection(NSWindow *w)
 {
@@ -120,6 +124,12 @@ static LRESULT SWELL_SendMouseMessage(NSView *slf, int msg, NSEvent *event)
   [slf retain];
   LRESULT res=SWELL_SendMouseMessageImpl((SWELL_hwndChild*)slf,msg,event);
   [slf release];
+
+  if (msg == WM_MOUSEMOVE && SWELL_GetOSXVersion()==0x10b0)  // OSX 10.11.0 doesnt run timers when mouse dragging etc.
+    // hopefully this can be removed for NSAppKitVersionNumber!=1404.0 (10.11.1?)
+  {
+    CFRunLoopRunInMode((CFStringRef)NSDefaultRunLoopMode,0.0,NO);
+  }
   return res;
 }
 
@@ -241,31 +251,22 @@ static LRESULT SwellDialogDefaultWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam,
     {
       if (!d(hwnd,WM_ERASEBKGND,0,0))
       {
-        bool nommc=useNoMiddleManCocoa();
+        const bool nommc=useNoMiddleManCocoa();
         NSView *cv = [[(NSView *)hwnd window] contentView];
-        bool isop = [(NSView *)hwnd isOpaque] || (nommc && [cv isOpaque]);
-        if (isop || cv == (NSView *)hwnd)
+        const bool hwndIsOpaque = [(NSView *)hwnd isOpaque];
+        const bool isop = hwndIsOpaque || (nommc && [cv isOpaque]);
+        const bool hwndIsCV = cv == (NSView *)hwnd;
+        if (isop || hwndIsCV)
         {
           PAINTSTRUCT ps;
-          if (BeginPaint(hwnd,&ps))
+          if (!nommc && !hwndIsOpaque && !hwndIsCV && !(((SWELL_hwndChild*)hwnd)->m_isdirty&1))
+          {
+            // if not no-middleman, not opaque, not content view, and not directly invalidated
+            // then don't bother background drawing
+          }
+          else if (BeginPaint(hwnd,&ps))
           {
             RECT r=ps.rcPaint;          
-            if (!nommc && !(((SWELL_hwndChild*)hwnd)->m_isdirty&1))
-            {
-              NSArray *ar = [(NSView *)hwnd subviews];
-              int x,n=[ar count];
-              for (x=0;x<n;x++)
-              {
-                NSView *v = [ar objectAtIndex:x];
-                if (![v isOpaque])
-                {
-                  NSRect f = [v frame];
-                  if (NSIntersectsRect(f,NSMakeRect(r.left,r.top,r.right-r.left,r.bottom-r.top))) break;
-                }
-              }     
-              if (x>=n) r.right=r.left; // disable drawing
-            }
-            
             if (r.right > r.left && r.bottom > r.top)
             {
               HBRUSH hbrush = (HBRUSH) d(hwnd,WM_CTLCOLORDLG,(WPARAM)ps.hdc,(LPARAM)hwnd);
@@ -897,6 +898,7 @@ static int DelegateMouseMove(NSView *view, NSEvent *theEvent)
   if (!(self = [super initWithFrame:contentRect])) return self;
 
   memset(m_access_cacheptrs,0,sizeof(m_access_cacheptrs));
+  m_allow_nomiddleman=1;
   m_isdirty=3;
   m_glctx=NULL;
   m_enabled=TRUE;
@@ -1095,7 +1097,7 @@ static int DelegateMouseMove(NSView *view, NSEvent *theEvent)
   // 10.5+ has some nice property where it goes up the hierarchy
   
 //  NSLog(@"r:%@ vr:%d v=%p tv=%p self=%p %p\n",NSStringFromRect(rect),vr,v,v2,self, [[self window] contentView]);
-  if (!useNoMiddleManCocoa() || ![self isOpaque] || [[self window] contentView] != self || [self isHiddenOrHasHiddenAncestor])
+  if (!useNoMiddleManCocoa() || ![self isOpaque] || [[self window] contentView] != self || [self isHiddenOrHasHiddenAncestor] || !m_allow_nomiddleman)
   {
     [super _recursiveDisplayRectIfNeededIgnoringOpacity:rect isVisibleRect:vr rectIsVisibleRectForView:v topView:v2];
     return;
@@ -3176,7 +3178,7 @@ void swellRenderOptimizely(int passflags, SWELL_hwndChild *view, HDC hdc, BOOL d
         
         if (doforce||(isSwellChild && ((SWELL_hwndChild*)v)->m_isdirty)|| [v needsDisplay])
         {
-          if (isSwellChild)
+          if (isSwellChild && ((SWELL_hwndChild *)v)->m_allow_nomiddleman)
           {
             NSRect fr = [v frame];
             CGContextSaveGState(hdc->ctx);

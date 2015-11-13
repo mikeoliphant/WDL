@@ -544,6 +544,7 @@ static functionType fnTable1[] = {
   {"freembuf",_asm_generic1parm,_asm_generic1parm_end,1,{&__NSEEL_RAM_MemFree},NSEEL_PProc_RAM},
   {"memcpy",_asm_generic3parm,_asm_generic3parm_end,3,{&__NSEEL_RAM_MemCpy},NSEEL_PProc_RAM},
   {"memset",_asm_generic3parm,_asm_generic3parm_end,3,{&__NSEEL_RAM_MemSet},NSEEL_PProc_RAM},
+  {"__memtop",_asm_generic1parm,_asm_generic1parm_end,1,{&__NSEEL_RAM_MemTop},NSEEL_PProc_RAM},
 
   {"stack_push",nseel_asm_stack_push,nseel_asm_stack_push_end,1|BIF_FPSTACKUSE(0),{0,},NSEEL_PProc_Stack},
   {"stack_pop",nseel_asm_stack_pop,nseel_asm_stack_pop_end,1|BIF_FPSTACKUSE(1),{0,},NSEEL_PProc_Stack},
@@ -4715,10 +4716,26 @@ NSEEL_VMCTX NSEEL_VM_alloc() // return a handle
 
   if (ctx) 
   {
+    ctx->ram_state.maxblocks = NSEEL_RAM_BLOCKS_DEFAULTMAX;
     ctx->ram_state.closefact = NSEEL_CLOSEFACTOR;
   }
   return ctx;
 }
+
+int NSEEL_VM_setramsize(NSEEL_VMCTX _ctx, int maxent)
+{
+  compileContext *ctx = (compileContext *)_ctx;
+  if (!ctx) return 0;
+  if (maxent > 0)
+  {
+    maxent = (maxent + NSEEL_RAM_ITEMSPERBLOCK - 1)/NSEEL_RAM_ITEMSPERBLOCK;
+    if (maxent > NSEEL_RAM_BLOCKS) maxent = NSEEL_RAM_BLOCKS;
+    ctx->ram_state.maxblocks = maxent;
+  }
+  
+  return ctx->ram_state.maxblocks * NSEEL_RAM_ITEMSPERBLOCK;
+}
+
 void NSEEL_VM_SetFunctionTable(NSEEL_VMCTX _ctx, eel_function_table *tab)
 {
   if (_ctx)
