@@ -211,4 +211,11 @@
 #define PNG_sCAL_PRECISION 5
 #define PNG_sRGB_PROFILE_CHECKS 2
 /* end of settings */
+
+#ifdef PNG_WRITE_SUPPORTED
+#define PNG_SAVE_INT_32_SUPPORTED
+#define PNG_WRITE_INT_FUNCTIONS_SUPPORTED
+#endif
+
+
 #endif /* PNGLCONF_H */

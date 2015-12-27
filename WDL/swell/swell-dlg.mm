@@ -124,12 +124,6 @@ static LRESULT SWELL_SendMouseMessage(NSView *slf, int msg, NSEvent *event)
   [slf retain];
   LRESULT res=SWELL_SendMouseMessageImpl((SWELL_hwndChild*)slf,msg,event);
   [slf release];
-
-  if (msg == WM_MOUSEMOVE && SWELL_GetOSXVersion()==0x10b0)  // OSX 10.11.0 doesnt run timers when mouse dragging etc.
-    // hopefully this can be removed for NSAppKitVersionNumber!=1404.0 (10.11.1?)
-  {
-    CFRunLoopRunInMode((CFStringRef)NSDefaultRunLoopMode,0.0,NO);
-  }
   return res;
 }
 
@@ -2371,7 +2365,7 @@ void SWELL_CarbonWndHost_SetWantAllKeys(void* carbonhost, bool want)
 
 - (id)initCarbonChild:(NSView *)parent rect:(Rect*)r composit:(bool)wantComp
 {
-  if (!(self = [super initChild:nil Parent:parent dlgProc:nil Param:nil])) return self;
+  if (!(self = [super initChild:nil Parent:parent dlgProc:nil Param:0])) return self;
 
   m_wantallkeys=false;
   
@@ -2723,11 +2717,19 @@ HWND SWELL_GetAudioUnitCocoaView(HWND parent, AudioUnit aunit, AudioUnitCocoaVie
     return 0;
   }
   
-  [(NSView*)parent addSubview:view];
+  [view retain];
+
   NSRect bounds = [view bounds];
   r->left = r->top = 0;
   r->right = bounds.size.width;
   r->bottom = bounds.size.height;
+
+  [((NSView*)parent) setAutoresizesSubviews:NO];
+  SetWindowPos((HWND)parent,NULL, 0,0, r->right,r->bottom, SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);
+
+  [(NSView*)parent addSubview:view];
+
+  [view release];
   [viewfactory release];
 
   return (HWND)view;
