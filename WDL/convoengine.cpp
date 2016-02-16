@@ -606,8 +606,8 @@ int WDL_ConvolutionEngine::Avail(int want)
   const int chunksize=m_fft_size/2;
   const int nblocks=(m_impulse_len+chunksize-1)/chunksize;
   // clear combining buffer
-  WDL_FFT_REAL *workbuf2 = m_combinebuf.Resize(m_fft_size*4+WDL_CONVO_ALIGN-1); // temp space
-  workbuf2 = m_combinebuf.WDL_CONVO_GETALIGNED();
+  m_combinebuf.Resize(m_fft_size*4+WDL_CONVO_ALIGN-1); // temp space
+  WDL_FFT_REAL *workbuf2 = m_combinebuf.WDL_CONVO_GETALIGNED();
 
   int ch;
 
