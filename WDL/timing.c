@@ -58,6 +58,17 @@ void _timingLeave(int which)
   timingInfo[which].calls += 1;
 }
 
+int _timingQuery(int which, __int64* cycles)
+{
+  if (timingInfo[which].calls && cycles)
+  {
+    cycles[0] = timingInfo[which].cycles;
+    cycles[1] = timingInfo[which].mint;
+    cycles[2] = timingInfo[which].maxt;
+  }
+  return timingInfo[which].calls;
+}
+
 void _timingPrint(void)
 {
 	int x,p=0;

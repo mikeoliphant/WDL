@@ -6,8 +6,6 @@
   To enable this, your app must #define TIMING, include timing.h, call timingInit(), then timingEnter(x)/timingLeave(x) a bunch
   of times (where x is 0-64), then timingPrint at the end. 
 
-  on timingPrint(), C:\\timings.txt will be overwritten.
-
 */
 
 #ifndef _TIMING_H_
@@ -26,6 +24,7 @@ void _timingInit(void);
 void _timingPrint(void);
 void _timingEnter(int);
 void _timingLeave(int);
+int _timingQuery(int, __int64*);
 #ifdef __cplusplus
 }
 #endif
@@ -33,11 +32,13 @@ void _timingLeave(int);
 #define timingInit() _timingInit()
 #define timingLeave(x) _timingLeave(x)
 #define timingEnter(x) _timingEnter(x)
+#define timingQuery(x,y) _timingQuery(x,y)
 #else
 #define timingPrint()
 #define timingInit()
 #define timingLeave(x)
 #define timingEnter(x)
+#define timingQuery(x,y) (0)
 #endif
 
 #endif
