@@ -1155,11 +1155,11 @@ int WDL_ConvolutionEngine_Thread::SetImpulse(WDL_ImpulseBuffer *impulse, int max
 
   int impulsechunksize = maxfft_size;
   if (impulsechunksize >= samplesleft || !m_thread_enable) impulsechunksize=samplesleft;
-  int offs = m_zl_engine.SetImpulse(impulse, maxfft_size, known_blocksize, impulsechunksize, impulse_offset, latency_allowed) + impulsechunksize;
+  m_zl_engine.SetImpulse(impulse, maxfft_size, known_blocksize, impulsechunksize, impulse_offset, latency_allowed);
 
   samplesleft -= impulsechunksize;
   m_thread_engine.SetImpulse(impulse, maxfft_size*2, impulse_offset + impulsechunksize, samplesleft);
-  m_thread_engine.m_zl_delaypos = samplesleft > 0 ? offs : -1;
+  m_thread_engine.m_zl_delaypos = samplesleft > 0 ? impulsechunksize : -1;
   m_thread_engine.m_zl_dumpage=0;
 
   return GetLatency();
