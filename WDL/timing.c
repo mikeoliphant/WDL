@@ -10,6 +10,10 @@
 #include <sys/time.h>
 #endif
 
+#if defined(__APPLE__) && defined(__OBJC__)
+#import <Foundation/Foundation.h>
+#endif
+
 static struct {
 	WDL_INT64 st_time;
 	WDL_INT64 cycles,mint,maxt;
@@ -94,16 +98,22 @@ void _timingPrint(void)
       );
 #ifdef _WIN32
       OutputDebugString(buf);
+#elif defined(__APPLE__) && defined(__OBJC__)
+      NSLog(@"%s",buf);
 #else
       printf("%s",buf);
 #endif
     }
 	}
+  if (!p)
 #ifdef _WIN32
-  if (!p) OutputDebugString("no calls to timing lib\n");
+  OutputDebugString(
+#elif defined(__APPLE__) && defined(__OBJC__)
+  NSLog(@
 #else
-  if (!p) printf("no calls to timing lib\n");
+  printf(
 #endif
+  "no calls to timing lib\n");
   
 	timingInit();
 }
