@@ -3,8 +3,11 @@
 #ifdef TIMING
 
 #include <stdio.h>
+
 #ifdef _WIN32
 #include <windows.h>
+#else
+#include <sys/time.h>
 #endif
 
 static struct {
@@ -22,7 +25,7 @@ static void rdtsc(WDL_INT64 *t)
   QueryPerformanceCounter(&now);
   *t = now.QuadPart;
 #elif !defined(_WIN32)
-  struct timeval tm={0,};
+  struct timeval tm={0};
   gettimeofday(&tm,NULL);
   *t = ((WDL_INT64)tm.tv_sec)*1000000 + (WDL_INT64)tm.tv_usec;
 #else
