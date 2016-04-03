@@ -15,6 +15,7 @@
 //#define TIMING
 
 
+#include "wdltypes.h"
 
 #if defined(TIMING) && !defined(__alpha)
 #ifdef __cplusplus
@@ -24,7 +25,7 @@ void _timingInit(void);
 void _timingPrint(void);
 void _timingEnter(int);
 void _timingLeave(int);
-int _timingQuery(int, __int64*);
+int _timingQuery(int, WDL_INT64*);
 #ifdef __cplusplus
 }
 #endif

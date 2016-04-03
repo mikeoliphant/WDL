@@ -8,14 +8,14 @@
 #endif
 
 static struct {
-	__int64 st_time;
-	__int64 cycles,mint,maxt;
+	WDL_INT64 st_time;
+	WDL_INT64 cycles,mint,maxt;
   int foo;
 	int calls;
 } timingInfo[64];
 
 
-static void rdtsc(__int64 *t)
+static void rdtsc(WDL_INT64 *t)
 {
 #ifdef _WIN64
   LARGE_INTEGER now;
@@ -24,7 +24,7 @@ static void rdtsc(__int64 *t)
 #elif !defined(_WIN32)
   struct timeval tm={0,};
   gettimeofday(&tm,NULL);
-  *t = ((__int64)tm.tv_sec)*1000000 + (__int64)tm.tv_usec;
+  *t = ((WDL_INT64)tm.tv_sec)*1000000 + (WDL_INT64)tm.tv_usec;
 #else
 	__asm 
 	{
@@ -49,7 +49,7 @@ void _timingEnter(int which)
 
 void _timingLeave(int which)
 {
-  __int64 t;
+  WDL_INT64 t;
   rdtsc(&t);
   t -= timingInfo[which].st_time;
   if (!timingInfo[which].mint || t < timingInfo[which].mint) timingInfo[which].mint=t?t:1;
@@ -58,7 +58,7 @@ void _timingLeave(int which)
   timingInfo[which].calls += 1;
 }
 
-int _timingQuery(int which, __int64* cycles)
+int _timingQuery(int which, WDL_INT64* cycles)
 {
   if (timingInfo[which].calls && cycles)
   {
