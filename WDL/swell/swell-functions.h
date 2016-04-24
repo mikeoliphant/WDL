@@ -488,6 +488,7 @@ SWELL_API_DEFINE(int, SWELL_GetListViewHeaderHeight, (HWND h))
 SWELL_API_DEFINE(HIMAGELIST, ImageList_CreateEx,())
 SWELL_API_DEFINE(BOOL, ImageList_Remove, (HIMAGELIST list, int idx))
 SWELL_API_DEFINE(int, ImageList_ReplaceIcon,(HIMAGELIST list, int offset, HICON image))
+SWELL_API_DEFINE(int, ImageList_Add,(HIMAGELIST list, HBITMAP image, HBITMAP mask))
 SWELL_API_DEFINE(void, ImageList_Destroy, (HIMAGELIST))
 /*
 ** TabCtrl api. 
@@ -1114,10 +1115,14 @@ SWELL_API_DEFINE(BOOL,SWELL_IsButton,(HWND))
 SWELL_API_DEFINE(BOOL,SWELL_IsStaticText,(HWND))
 SWELL_API_DEFINE(void,SWELL_GetDesiredControlSize,(HWND hwnd, RECT *r))
 
+SWELL_API_DEFINE(int,AddFontResourceEx,(LPCTSTR str, DWORD fl, void *pdv))
+
 #ifdef __APPLE__
 SWELL_API_DEFINE(void,SWELL_DisableAppNap,(int disable))
 SWELL_API_DEFINE(int,SWELL_GetOSXVersion,())
 #endif
+
+SWELL_API_DEFINE(void,SWELL_Register_Cursor_Resource,(const char *idx, const char *name, int hotspot_x, int hotspot_y))
 
 
 #endif // _WDL_SWELL_H_API_DEFINED_

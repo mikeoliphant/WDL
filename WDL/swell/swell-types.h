@@ -1280,7 +1280,6 @@ __attribute__ ((visibility ("default"))) BOOL WINAPI DllMain(HINSTANCE hInstDLL,
 #define _RC_CHOP        0x00000300              /*   chop */
 
 
-extern struct SWELL_CursorResourceIndex *SWELL_curmodule_cursorresource_head;
 extern struct SWELL_DialogResourceIndex *SWELL_curmodule_dialogresource_head;
 extern struct SWELL_MenuResourceIndex *SWELL_curmodule_menuresource_head;
 
@@ -1353,6 +1352,8 @@ extern struct SWELL_MenuResourceIndex *SWELL_curmodule_menuresource_head;
 #define WAIT_FAILED (DWORD)0xFFFFFFFF
 #define INFINITE            0xFFFFFFFF
 
+
+#define FR_PRIVATE 1 // AddFontResourceEx()
 
 typedef struct _ICONINFO
 {
