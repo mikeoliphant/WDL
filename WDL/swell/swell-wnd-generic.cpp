@@ -221,8 +221,6 @@ static void swell_manageOSwindow(HWND hwnd, bool wantfocus)
         if (hwnd->m_oswindow) 
         {
           gdk_window_set_user_data(hwnd->m_oswindow,hwnd);
-          gdk_window_move_resize(hwnd->m_oswindow,r.left,r.top,r.right-r.left,r.bottom-r.top);
-          if (!wantfocus) gdk_window_set_focus_on_map(hwnd->m_oswindow,false);
           HWND DialogBoxIsActive();
           if (!(hwnd->m_style & WS_CAPTION)) 
           {
@@ -239,9 +237,17 @@ static void swell_manageOSwindow(HWND hwnd, bool wantfocus)
             gdk_window_set_decorations(hwnd->m_oswindow,(GdkWMDecoration) (GDK_DECOR_ALL & ~(GDK_DECOR_MENU)));
           }
 
+          gdk_window_move_resize(hwnd->m_oswindow,r.left,r.top,r.right-r.left,r.bottom-r.top);
+          if (!wantfocus) gdk_window_set_focus_on_map(hwnd->m_oswindow,false);
+
 #ifdef SWELL_LICE_GDI
           if (!hwnd->m_backingstore) hwnd->m_backingstore = new LICE_CairoBitmap;
 #endif
+          if (hwnd->m_owner)
+          {
+            gdk_window_set_keep_above(hwnd->m_oswindow,true);
+            gdk_window_set_skip_taskbar_hint(hwnd->m_oswindow,true);
+          }
           gdk_window_show(hwnd->m_oswindow);
         }
       }
@@ -252,6 +258,33 @@ static void swell_manageOSwindow(HWND hwnd, bool wantfocus)
 //  if (wantVis && isVis && wantfocus && hwnd && hwnd->m_oswindow) gdk_window_raise(hwnd->m_oswindow);
 }
 
+void swell_recalcMinMaxInfo(HWND hwnd)
+{
+  if (!hwnd || !hwnd->m_oswindow || !(hwnd->m_style & WS_CAPTION)) return;
+
+  MINMAXINFO mmi={0,};
+  if (hwnd->m_style & WS_THICKFRAME)
+  {
+    mmi.ptMinTrackSize.x = 20;
+    mmi.ptMaxSize.x = mmi.ptMaxTrackSize.x = 2000;
+    mmi.ptMinTrackSize.y = 20;
+    mmi.ptMaxSize.y = mmi.ptMaxTrackSize.y = 2000;
+    SendMessage(hwnd,WM_GETMINMAXINFO,0,(LPARAM)&mmi);
+  }
+  else
+  {
+    RECT r=hwnd->m_position;
+    mmi.ptMinTrackSize.x = mmi.ptMaxSize.x = mmi.ptMaxTrackSize.x = r.right-r.left;
+    mmi.ptMinTrackSize.y = mmi.ptMaxSize.y = mmi.ptMaxTrackSize.y = r.bottom-r.top;
+  }
+  GdkGeometry h;
+  memset(&h,0,sizeof(h));
+  h.max_width= mmi.ptMaxSize.x;
+  h.max_height= mmi.ptMaxSize.y;
+  h.min_width= mmi.ptMinTrackSize.x;
+  h.min_height= mmi.ptMinTrackSize.y;
+  gdk_window_set_geometry_hints(hwnd->m_oswindow,&h,(GdkWindowHints) (GDK_HINT_POS | GDK_HINT_MIN_SIZE | GDK_HINT_MAX_SIZE));
+}
 
 void swell_OSupdateWindowToScreen(HWND hwnd, RECT *rect)
 {
@@ -352,9 +385,13 @@ static LRESULT SendMouseMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
   if (!hwnd || !hwnd->m_wndproc) return -1;
   if (!IsWindowEnabled(hwnd)) 
   {
-    HWND DialogBoxIsActive();
-    HWND h = DialogBoxIsActive();
-    if (h) SetForegroundWindow(h);
+    if (msg == WM_LBUTTONDOWN || msg == WM_RBUTTONDOWN || msg == WM_MBUTTONDOWN ||
+        msg == WM_LBUTTONDBLCLK || msg == WM_RBUTTONDBLCLK || msg == WM_MBUTTONDBLCLK)
+    {
+      HWND DialogBoxIsActive();
+      HWND h = DialogBoxIsActive();
+      if (h) SetForegroundWindow(h);
+    }
     return -1;
   }
 
@@ -420,7 +457,30 @@ static void swell_gdkEventHandler(GdkEvent *evt, gpointer data)
       if (evt->type == GDK_FOCUS_CHANGE)
       {
         GdkEventFocus *fc = (GdkEventFocus *)evt;
-        if (fc->in) SWELL_g_focus_oswindow = hwnd ? fc->window : NULL;
+        const bool last_focus = !!SWELL_g_focus_oswindow;
+        if (fc->in) 
+        {
+          SWELL_g_focus_oswindow = hwnd ? fc->window : NULL;
+        }
+        else
+        {
+          if (SWELL_g_focus_oswindow == fc->window) SWELL_g_focus_oswindow = NULL;
+        }
+
+        if (last_focus != !!SWELL_g_focus_oswindow)
+        {
+          // keep-above any owned windows while one of our windows has focus
+          HWND h = SWELL_topwindows; 
+          while (h)
+          {
+            if (h->m_oswindow && h->m_owner)
+            {
+              gdk_window_set_keep_above(h->m_oswindow,!!SWELL_g_focus_oswindow);
+            }
+            h=h->m_next;
+          }
+        }
+
       }
 
       if (hwnd) switch (evt->type)
@@ -499,6 +559,7 @@ static void swell_gdkEventHandler(GdkEvent *evt, gpointer data)
             hwnd->m_position.bottom = cfg->y + cfg->height;
             if (flag&1) SendMessage(hwnd,WM_MOVE,0,0);
             if (flag&2) SendMessage(hwnd,WM_SIZE,0,0);
+            if (!hwnd->m_hashaddestroy && hwnd->m_oswindow) swell_recalcMinMaxInfo(hwnd);
           }
         break;
         case GDK_WINDOW_STATE: /// GdkEventWindowState for min/max
@@ -706,6 +767,8 @@ HWND__::HWND__(HWND par, int wID, RECT *wndr, const char *label, bool visible, W
 
 HWND__::~HWND__()
 {
+  if (m_wndproc)
+    m_wndproc(this,WM_NCDESTROY,0,0);
 }
 
 
@@ -959,8 +1022,6 @@ static void RecurseDestroyWindow(HWND hwnd)
 
   // remove from parent/global lists
   swell_removeWindowFromParentOrTop(hwnd, true);
-
-  hwnd->m_wndproc=NULL;
 
   SWELL_MessageQueue_Clear(hwnd);
   KillTimer(hwnd,-1);
@@ -1347,6 +1408,9 @@ void SetWindowPos(HWND hwnd, HWND zorder, int x, int y, int cx, int cy, int flag
       {
         hwnd->m_position = f;
         SendMessage(hwnd,WM_SIZE,0,0);
+#ifdef SWELL_TARGET_GDK
+        if (!hwnd->m_hashaddestroy && hwnd->m_oswindow) swell_recalcMinMaxInfo(hwnd);
+#endif
       }
       InvalidateRect(hwnd->m_parent ? hwnd->m_parent : hwnd,NULL,FALSE);
     }
