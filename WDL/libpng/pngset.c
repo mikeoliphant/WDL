@@ -1,8 +1,8 @@
 
 /* pngset.c - storage of image information into info struct
  *
- * Last changed in libpng 1.6.21 [January 15, 2016]
- * Copyright (c) 1998-2015 Glenn Randers-Pehrson
+ * Last changed in libpng 1.6.23 [June 9, 2016]
+ * Copyright (c) 1998-2016 Glenn Randers-Pehrson
  * (Version 0.96 Copyright (c) 1996, 1997 Andreas Dilger)
  * (Version 0.88 Copyright (c) 1995, 1996 Guy Eric Schalnat, Group 42, Inc.)
  *
@@ -952,12 +952,14 @@ png_set_tRNS(png_structrp png_ptr, png_inforp info_ptr,
 
        png_free_data(png_ptr, info_ptr, PNG_FREE_TRNS, 0);
 
-       /* Changed from num_trans to PNG_MAX_PALETTE_LENGTH in version 1.2.1 */
-       png_ptr->trans_alpha = info_ptr->trans_alpha = png_voidcast(png_bytep,
-         png_malloc(png_ptr, PNG_MAX_PALETTE_LENGTH));
-
        if (num_trans > 0 && num_trans <= PNG_MAX_PALETTE_LENGTH)
+       {
+         /* Changed from num_trans to PNG_MAX_PALETTE_LENGTH in version 1.2.1 */
+          info_ptr->trans_alpha = png_voidcast(png_bytep,
+             png_malloc(png_ptr, PNG_MAX_PALETTE_LENGTH));
           memcpy(info_ptr->trans_alpha, trans_alpha, (png_size_t)num_trans);
+       }
+       png_ptr->trans_alpha = info_ptr->trans_alpha;
    }
 
    if (trans_color != NULL)
@@ -1496,66 +1498,6 @@ png_set_rows(png_const_structrp png_ptr, png_inforp info_ptr,
       info_ptr->valid |= PNG_INFO_IDAT;
 }
 #endif
-
-void PNGAPI
-png_set_compression_buffer_size(png_structrp png_ptr, png_size_t size)
-{
-    if (png_ptr == NULL)
-       return;
-
-    if (size == 0 || size > PNG_UINT_31_MAX)
-       png_error(png_ptr, "invalid compression buffer size");
-
-#  ifdef PNG_SEQUENTIAL_READ_SUPPORTED
-      if ((png_ptr->mode & PNG_IS_READ_STRUCT) != 0)
-      {
-         png_ptr->IDAT_read_size = (png_uint_32)size; /* checked above */
-         return;
-      }
-#  endif
-
-#  ifdef PNG_WRITE_SUPPORTED
-      if ((png_ptr->mode & PNG_IS_READ_STRUCT) == 0)
-      {
-         if (png_ptr->zowner != 0)
-         {
-            png_warning(png_ptr,
-              "Compression buffer size cannot be changed because it is in use");
-
-            return;
-         }
-
-#ifndef __COVERITY__
-         /* Some compilers complain that this is always false.  However, it
-          * can be true when integer overflow happens.
-          */
-         if (size > ZLIB_IO_MAX)
-         {
-            png_warning(png_ptr,
-               "Compression buffer size limited to system maximum");
-            size = ZLIB_IO_MAX; /* must fit */
-         }
-#endif
-
-         if (size < 6)
-         {
-            /* Deflate will potentially go into an infinite loop on a SYNC_FLUSH
-             * if this is permitted.
-             */
-            png_warning(png_ptr,
-               "Compression buffer size cannot be reduced below 6");
-
-            return;
-         }
-
-         if (png_ptr->zbuffer_size != size)
-         {
-            png_free_buffer_list(png_ptr, &png_ptr->zbuffer_list);
-            png_ptr->zbuffer_size = (uInt)size;
-         }
-      }
-#  endif
-}
 
 void PNGAPI
 png_set_invalid(png_const_structrp png_ptr, png_inforp info_ptr, int mask)
