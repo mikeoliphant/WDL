@@ -1086,6 +1086,8 @@ void WDL_fft(WDL_FFT_COMPLEX *buf, int len, int isInverse)
   }
 }
 
+#if !defined(WDL_FFT_NO_REAL) && !defined(WDL_FFT_NO_PERMUTE)
+
 static inline void r2(register WDL_FFT_REAL *a)
 {
   register WDL_FFT_REAL t1, t2;
@@ -1197,3 +1199,5 @@ void WDL_real_fft(WDL_FFT_REAL* buf, int len, int isInverse)
 #undef TMP
   }
 }
+
+#endif // WDL_FFT_NO_REAL
