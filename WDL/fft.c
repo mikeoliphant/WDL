@@ -267,7 +267,7 @@ static WDL_FFT_COMPLEX d32768[4095];
   a1.im = t4; \
   }
 
-static void c2(register WDL_FFT_COMPLEX *a)
+static inline void c2(register WDL_FFT_COMPLEX *a)
 {
   register WDL_FFT_REAL t1;
 
@@ -1088,6 +1088,24 @@ void WDL_fft(WDL_FFT_COMPLEX *buf, int len, int isInverse)
 
 #if !defined(WDL_FFT_NO_REAL) && !defined(WDL_FFT_NO_PERMUTE)
 
+#define R(a0,a1,b0,b1,wre,wim) { \
+  t1 = a0 + b0; \
+  t2 = a1 + b1; \
+  t3 = a0 - b0; \
+  t4 = a1 - b1; \
+  t5 = wim * t3 + wre * t2; \
+  t6 = wre * t3 - wim * t2; \
+  a0 = t1 - t5; \
+  a1 = t6 + t4; \
+  b0 = t1 + t5; \
+  b1 = t6 - t4; \
+  }
+
+#define RSCALE(a) { \
+  a[2] *= 2; \
+  a[3] *= -2; \
+  }
+
 static inline void r2(register WDL_FFT_REAL *a)
 {
   register WDL_FFT_REAL t1, t2;
@@ -1098,6 +1116,23 @@ static inline void r2(register WDL_FFT_REAL *a)
   a[1] = t2 * 2;
 }
 
+static void r4(register WDL_FFT_REAL *a)
+{
+  c2((WDL_FFT_COMPLEX*)a);
+  r2(a);
+  RSCALE(a);
+}
+
+static void r8(register WDL_FFT_REAL *a)
+{
+  register WDL_FFT_REAL t1, t2, t3, t4, t5, t6;
+
+  c4((WDL_FFT_COMPLEX*)a);
+  r2(a);
+  R(a[6],a[7],a[4],a[5],-sqrthalf,sqrthalf);
+  RSCALE(a);
+}
+
 static inline void v2(register WDL_FFT_REAL *a)
 {
   register WDL_FFT_REAL t1, t2;
@@ -1106,6 +1141,23 @@ static inline void v2(register WDL_FFT_REAL *a)
   t2 = a[0] - a[1];
   a[0] = t1;
   a[1] = t2;
+}
+
+static void v4(register WDL_FFT_REAL *a)
+{
+  v2(a);
+  RSCALE(a);
+  c2((WDL_FFT_COMPLEX*)a);
+}
+
+static void v8(register WDL_FFT_REAL *a)
+{
+  register WDL_FFT_REAL t1, t2, t3, t4, t5, t6;
+
+  v2(a);
+  R(a[6],a[7],a[4],a[5],sqrthalf,sqrthalf);
+  RSCALE(a);
+  u4((WDL_FFT_COMPLEX*)a);
 }
 
 static void two_for_one(WDL_FFT_REAL* buf, const WDL_FFT_COMPLEX *d, int len, int isInverse)
@@ -1181,8 +1233,11 @@ void WDL_real_fft(WDL_FFT_REAL* buf, int len, int isInverse)
 {
   switch (len)
   {
-    case 2: if (!isInverse) r2(buf); else v2(buf); break;
-    case 4: case 8: two_for_one(buf, 0, len, isInverse); break;
+#define TMP(x) case x: if (!isInverse) r##x(buf); else v##x(buf); break;
+    TMP(2)
+    TMP(4)
+    TMP(8)
+#undef TMP
 #define TMP(x) case x: two_for_one(buf, d##x, len, isInverse); break;
     TMP(16)
     TMP(32)
