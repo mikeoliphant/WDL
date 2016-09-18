@@ -1086,6 +1086,8 @@ void WDL_fft(WDL_FFT_COMPLEX *buf, int len, int isInverse)
   }
 }
 
+/* Real FFT is based on: http://www.katjaas.nl/realFFT/realFFT2.html */
+
 #if !defined(WDL_FFT_NO_REAL) && !defined(WDL_FFT_NO_PERMUTE)
 
 #define R(a0,a1,b0,b1,wre,wim) { \
@@ -1104,6 +1106,11 @@ void WDL_fft(WDL_FFT_COMPLEX *buf, int len, int isInverse)
 #define RSCALE(a) { \
   a[2] *= 2; \
   a[3] *= -2; \
+  }
+
+#define RPERMUTE(a,k,n) { \
+  a1 = (WDL_FFT_COMPLEX*)a + _idxperm[n + k - 2]; \
+  a2 = (WDL_FFT_COMPLEX*)a + _idxperm[2*n - k - 2]; \
   }
 
 static inline void r2(register WDL_FFT_REAL *a)
@@ -1160,73 +1167,55 @@ static void v8(register WDL_FFT_REAL *a)
   u4((WDL_FFT_COMPLEX*)a);
 }
 
-static void two_for_one(WDL_FFT_REAL* buf, const WDL_FFT_COMPLEX *d, int len, int isInverse)
+/* a[0...8n-1], w[0...n-2] */
+static void two_for_one(register WDL_FFT_REAL *a,register const WDL_FFT_COMPLEX *w,register unsigned int n,register int isInverse)
 {
-  const unsigned int half = (unsigned)len >> 1, quart = half >> 1, eighth = quart >> 1;
-  const int *permute = WDL_fft_permute_tab(half);
-  unsigned int i, j;
-
-  WDL_FFT_COMPLEX *p, *q, tw, sum, diff;
-  WDL_FFT_REAL tw1, tw2;
+  register WDL_FFT_REAL t1, t2, t3, t4, t5, t6, wre, wim;
+  register WDL_FFT_COMPLEX *a1;
+  register WDL_FFT_COMPLEX *a2;
+  register unsigned int k;
 
   if (!isInverse)
   {
-  	WDL_fft((WDL_FFT_COMPLEX*)buf, half, isInverse);
-  	r2(buf);
+    WDL_fft((WDL_FFT_COMPLEX*)a, 4*n, isInverse);
+    r2(a);
   }
   else
   {
-  	v2(buf);
+    v2(a);
   }
 
-  /* Source: http://www.katjaas.nl/realFFT/realFFT2.html */
-
-  for (i = 1; i < quart; ++i)
+  for (k = 1; k < 2*n; ++k)
   {
-    p = (WDL_FFT_COMPLEX*)buf + permute[i];
-    q = (WDL_FFT_COMPLEX*)buf + permute[half - i];
+    RPERMUTE(a,k,4*n);
 
-/*  tw.re = cos(2*PI * i / len);
-    tw.im = sin(2*PI * i / len); */
+/*  wre = (WDL_FFT_REAL)cos(2*PI * k / (8*n));
+    wim = (WDL_FFT_REAL)sin(2*PI * k / (8*n)); */
 
-    if (i < eighth)
+    if (k < n)
     {
-      j = i - 1;
-      tw.re = d[j].re;
-      tw.im = d[j].im;
+      wre = w[0].re;
+      wim = w[0].im;
+      w++;
     }
-    else if (i > eighth)
+    else if (k > n)
     {
-      j = quart - i - 1;
-      tw.re = d[j].im;
-      tw.im = d[j].re;
+      w--;
+      wre = w[0].im;
+      wim = w[0].re;
     }
     else
     {
-      tw.re = tw.im = sqrthalf;
+      wre = wim = sqrthalf;
     }
 
-    if (!isInverse) tw.re = -tw.re;
+    if (!isInverse) wre = -wre;
 
-    sum.re = p->re + q->re;
-    sum.im = p->im + q->im;
-    diff.re = p->re - q->re;
-    diff.im = p->im - q->im;
-
-    tw1 = tw.re * sum.im + tw.im * diff.re;
-    tw2 = tw.im * sum.im - tw.re * diff.re;
-
-    p->re = sum.re - tw1;
-    p->im = diff.im - tw2;
-    q->re = sum.re + tw1;
-    q->im = -(diff.im + tw2);
+    R(a1[0].re,a1[0].im,a2[0].re,a2[0].im,wre,wim);
   }
 
-  p = (WDL_FFT_COMPLEX*)buf + permute[i];
-  p->re *=  2;
-  p->im *= -2;
-
-  if (isInverse) WDL_fft((WDL_FFT_COMPLEX*)buf, half, isInverse);
+  RSCALE(a);
+  if (isInverse) WDL_fft((WDL_FFT_COMPLEX*)a, 4*n, isInverse);
 }
 
 void WDL_real_fft(WDL_FFT_REAL* buf, int len, int isInverse)
@@ -1238,7 +1227,7 @@ void WDL_real_fft(WDL_FFT_REAL* buf, int len, int isInverse)
     TMP(4)
     TMP(8)
 #undef TMP
-#define TMP(x) case x: two_for_one(buf, d##x, len, isInverse); break;
+#define TMP(x) case x: two_for_one(buf, d##x, x/8, isInverse); break;
     TMP(16)
     TMP(32)
     TMP(64)
