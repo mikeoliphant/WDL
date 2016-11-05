@@ -38,7 +38,7 @@ extern "C" {
 #endif
 
 #define ZLIB_VERSION "1.2.8.f-wdl"
-#define ZLIB_VERNUM 0x128f
+#define ZLIB_VERNUM 0x128
 #define ZLIB_VER_MAJOR 1
 #define ZLIB_VER_MINOR 2
 #define ZLIB_VER_REVISION 8
