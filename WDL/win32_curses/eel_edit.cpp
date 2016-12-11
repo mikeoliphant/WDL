@@ -15,53 +15,19 @@
 #include "../eel2/ns-eel-int.h"
 
 
-EEL_Editor::EEL_Editor(void *cursesCtx) : MultiTab_Editor(cursesCtx), m_has_peek(true)
+EEL_Editor::EEL_Editor(void *cursesCtx) : WDL_CursesEditor(cursesCtx)
 {
-  init_pair(3, RGB(0,255,255),COLOR_BLACK); // highlight for known words
-  init_pair(4, RGB(0,255,0),COLOR_BLACK); // numbers
-  init_pair(5, RGB(96,128,192),COLOR_BLACK); // comments
-
-  init_pair(6, COLOR_WHITE, COLOR_RED);
-  init_pair(7, RGB(255,255,0), COLOR_BLACK);  
-
-#ifdef WDL_IS_FAKE_CURSES
-  init_pair(8, RGB(255,128,128), COLOR_BLACK); // regvar
-  init_pair(9, RGB(0,192,255), COLOR_BLACK); // keyword
-  init_pair(10, RGB(255,192,192), COLOR_BLACK); // string
-  init_pair(11, RGB(192,255,128), COLOR_BLACK); // stringvar
-#endif
+  m_added_funclist=NULL;
+  m_suggestion_x=m_suggestion_y=-1;
+  m_case_sensitive=false;
+  m_function_prefix = "function ";
 }
 
 EEL_Editor::~EEL_Editor()
 {
 }
 
-//#define START_ON_VARS_KEYWORD
-#ifdef START_ON_VARS_KEYWORD
-#include "../assocarray.h"
-static int s_lasttok_wasfunction;
-static WDL_StringKeyedArray<bool> s_declaredVars(false), s_declaredFuncs(false), s_funcDef_vars(false);
-
-static void sh_func_ontoken(const char *tok, int toklen)
-{
-  // todo: track whether we are in a function definition
-  if (s_lasttok_wasfunction && (tok[0] == '_' || isalpha(tok[0])))
-  {
-    char buf[1024];
-    if (toklen > sizeof(buf)-1) toklen=sizeof(buf)-1;
-    lstrcpyn_safe(buf,tok,toklen+1);
-    s_declaredFuncs.Insert(buf,1);
-    s_lasttok_wasfunction=false;
-  }
-  else
-  {
-    s_lasttok_wasfunction = toklen == 8 && !strnicmp(tok,"function",8);
-  }
-}
-
-#else
 #define sh_func_ontoken(x,y)
-#endif
 
 int EEL_Editor::namedTokenHighlight(const char *tokStart, int len, int state)
 {
@@ -77,39 +43,28 @@ int EEL_Editor::namedTokenHighlight(const char *tokStart, int len, int state)
   if (len == 5 && !strnicmp(tokStart,"while",5)) return SYNTAX_KEYWORD;
   if (len == 4 && !strnicmp(tokStart,"loop",4)) return SYNTAX_KEYWORD;
 
+  if (len == 17 && !strnicmp(tokStart,"__denormal_likely",17)) return SYNTAX_FUNC;
+  if (len == 19 && !strnicmp(tokStart,"__denormal_unlikely",19)) return SYNTAX_FUNC;
 
-  int x;
+  if (m_added_funclist)
+  {
+    char buf[512];
+    lstrcpyn_safe(buf,tokStart,wdl_min(sizeof(buf),len+1));
+    char **r=m_added_funclist->GetPtr(buf);
+    if (r) return *r ? SYNTAX_FUNC : SYNTAX_REGVAR;
+  }
+
+  NSEEL_VMCTX vm = peek_want_VM_funcs() ? peek_get_VM() : NULL;
+  int x; 
   for(x=0;;x++)
   {
-    functionType *f = nseel_getFunctionFromTable(x);
+    functionType *f = nseel_getFunctionFromTableEx((compileContext*)vm,x);
     if (!f) break;
     if (f && !strnicmp(tokStart,f->name,len) && (int)strlen(f->name) == len)
     {
       return SYNTAX_FUNC;
     }
   }
-#ifdef START_ON_VARS_KEYWORD
-  // todo: need to lookahead to see if the next token is (, if so, look at s_declaredFuncs, otherwise s_declaredVars/s_funcDef_vars
-  if (state != STATE_BEFORE_CODE && (s_declaredVars.GetSize()||s_declaredFuncs.GetSize()))
-  {
-    char buf[1024];
-    if (len < sizeof(buf))
-    {
-      lstrcpyn_safe(buf,tokStart,len+1);
-      int tl;
-      const char *ep = tokStart+len;
-      const char *nexttok=sh_tokenize(&ep, ep+strlen(ep), &tl, NULL);
-      if (nexttok && nexttok[0] == '(')
-      {
-        if (!s_declaredFuncs.Get(buf)) return SYNTAX_ERROR;
-      }
-      else
-      {
-        if (s_declaredVars.GetSize() && !s_declaredVars.Get(buf)) return SYNTAX_ERROR;
-      }
-    }
-  }
-#endif
   return A_NORMAL;
 }
 
@@ -124,7 +79,7 @@ int EEL_Editor::parse_format_specifier(const char *fmt_in, int *var_offs, int *v
   {
     const char c = *fmt++;
 
-    if (isalpha(c)) 
+    if (c>0 && isalpha(c)) 
     {
       return (int) (fmt - fmt_in);
     }
@@ -241,7 +196,7 @@ void EEL_Editor::draw_string_urlchk(int *skipcnt, const char *str, int amt, int 
         str_scan += l;
         l=0;
         while (*str_scan &&
-               (strncmp(str_scan,"http://",7) || (sstr != str_scan && isalnum(str_scan[-1]))) &&
+               (strncmp(str_scan,"http://",7) || (sstr != str_scan && str_scan[-1] > 0 && isalnum(str_scan[-1]))) &&
                str_scan < str+amt) str_scan++;
         if (!*str_scan || str_scan >= str+amt) break;
         while (str_scan[l] && str_scan[l] != ')' && str_scan[l] != '\"' && str_scan[l] != ')' && str_scan[l] != ' ' && str_scan[l] != '\t') l++;
@@ -373,17 +328,7 @@ int EEL_Editor::do_draw_line(const char *p, int *c_comment_state, int last_attr)
   }
 
   int skipcnt = m_offs_x;
-  int ignoreSyntaxState=0;
-#ifdef START_ON_VARS_KEYWORD
-  if (!strnicmp(p,"var",3) && isspace(p[3]))
-  {
-    ignoreSyntaxState=-2;
-    draw_string(&skipcnt,p,3,&last_attr,SYNTAX_HIGHLIGHT1);
-    p+=3;
-  }
-  else
-#endif
-    ignoreSyntaxState = overrideSyntaxDrawingForLine(&skipcnt, &p, c_comment_state, &last_attr);
+  int ignoreSyntaxState = overrideSyntaxDrawingForLine(&skipcnt, &p, c_comment_state, &last_attr);
 
   if (ignoreSyntaxState>0)
   {
@@ -436,7 +381,7 @@ int EEL_Editor::do_draw_line(const char *p, int *c_comment_state, int last_attr)
     {
       attr = SYNTAX_COMMENT;
     }
-    else if (isalpha(tok[0]) || tok[0] == '_' || tok[0] == '#')
+    else if (tok[0] > 0 && (isalpha(tok[0]) || tok[0] == '_' || tok[0] == '#'))
     {
       int def_attr = A_NORMAL;
       bool isf=true;
@@ -454,7 +399,14 @@ int EEL_Editor::do_draw_line(const char *p, int *c_comment_state, int last_attr)
         while (this_len < toklen && tok[this_len] != '.') this_len++;
         if (this_len > 0)
         {
-          const int attr=isf?namedTokenHighlight(tok,this_len,*c_comment_state):def_attr;
+          int attr=isf?namedTokenHighlight(tok,this_len,*c_comment_state):def_attr;
+          if (isf && attr == A_NORMAL)
+          {
+            int ntok_len=0, cc = *c_comment_state;
+            const char *pp=lp,*ntok = sh_tokenize(&pp,endptr,&ntok_len,&cc);
+            if (ntok && ntok_len>0 && *ntok == '(') def_attr = attr = SYNTAX_FUNC2;
+          }
+
           draw_string(&skipcnt,tok,this_len,&last_attr,attr==A_NORMAL?def_attr:attr);
           tok += this_len;
           toklen -= this_len;
@@ -559,11 +511,6 @@ int EEL_Editor::do_draw_line(const char *p, int *c_comment_state, int last_attr)
 
 int EEL_Editor::GetCommentStateForLineStart(int line)
 {
-  
-#ifdef START_ON_VARS_KEYWORD
-  s_declaredFuncs.DeleteAll();
-  s_declaredVars.DeleteAll();
-#endif
   if (m_write_leading_tabs<=0) m_indent_size=2;
   const bool uses_code_start_lines = !!is_code_start_line(NULL);
 
@@ -585,26 +532,6 @@ int EEL_Editor::GetCommentStateForLineStart(int line)
         int a = atoi(p+8);
         if (a>0 && a < 32) m_indent_size = a;
       }
-
-      #ifdef START_ON_VARS_KEYWORD
-      if (!strnicmp(p,"var",3) && isspace(p[3]))
-      {
-        const char *endp=p + t->GetLength();
-        const char *tok;
-        int toklen;
-        p+=4;
-        while (NULL != (tok = sh_tokenize(&p,endp,&toklen,NULL)))
-        {
-          if (isalpha(tok[0]) || tok[0] == '_' || tok[0] == '#')
-          {
-            char buf[512];
-            if (toklen > sizeof(buf)-1) toklen=sizeof(buf)-1;
-            lstrcpyn_safe(buf,tok,toklen+1);
-            s_declaredVars.AddUnsorted(buf,1);
-          }
-        }
-      }
-      #endif
     }
 
 
@@ -622,9 +549,6 @@ int EEL_Editor::GetCommentStateForLineStart(int line)
     x++;
   }
 
-  #ifdef START_ON_VARS_KEYWORD
-  s_declaredVars.Resort();
-  #endif
   s_draw_parentokenstack.Resize(0,false);
 
   for (;x<line;x++)
@@ -660,29 +584,24 @@ const char *EEL_Editor::sh_tokenize(const char **ptr, const char *endptr, int *l
 
 bool EEL_Editor::LineCanAffectOtherLines(const char *txt, int spos, int slen) // if multiline comment etc
 {
-  if (txt)
+  const char *special_start = txt + spos;
+  const char *special_end = txt + spos + slen;
+  while (*txt)
   {
-    const char *special_start = txt + spos;
-    const char *special_end = txt + spos + slen;
-#ifdef START_ON_VARS_KEYWORD
-    if (!strnicmp(txt,"var",3) && isspace(txt[3])) return true;
-#endif
-    if (*txt == '@') return true;
-    while (*txt)
+    if (txt >= special_start-1 && txt < special_end)
     {
       const char c = txt[0];
-      if (c == '\"' || c == '\'') return true;
       if (c == '*' && txt[1] == '/') return true;
-      if (c == '/' && txt[1] == '*') return true;
-      if (txt >= special_start && txt < special_end)
+      if (c == '/' && (txt[1] == '/' || txt[1] == '*')) return true;
+      if (c == '\\' && (txt[1] == '\"' || txt[1] == '\'')) return true;
+
+      if (txt >= special_start)
       {
+        if (c == '\"' || c == '\'') return true;
         if (c == '(' || c == '[' || c == ')' || c == ']' || c == ':' || c == ';' || c == '?') return true;
       }
-#ifdef START_ON_VARS_KEYWORD
-      if (!strnicmp(txt,"function",8)) return true;
-#endif
-      txt++;
     }
+    txt++;
   }
   return false;
 }
@@ -794,6 +713,8 @@ static void eel_sh_generate_token_list(const WDL_PtrList<WDL_FastString> *lines,
       {
         if (tok) switch (tok[0])
         {
+          case '{':
+          case '}':
           case '?':
           case ':':
           case ';':
@@ -969,13 +890,122 @@ void EEL_Editor::doParenMatching()
   }
 }
 
+int EEL_Editor::peek_get_function_info(const char *name, char *sstr, size_t sstr_sz, int chkmask, int ignoreline)
+{
+  if ((chkmask&4) && m_function_prefix && *m_function_prefix)
+  {
+    const size_t nlen = strlen(name);
+    const char *prefix = m_function_prefix;
+    const int prefix_len = (int) strlen(m_function_prefix);
+    for (int i=0; i < m_text.GetSize(); ++i)
+    {
+      WDL_FastString* s=m_text.Get(i);
+      if (s && i != ignoreline)
+      {
+        const char* p= s->Get();
+        while (*p)
+        {
+          if (m_case_sensitive ? !strncmp(p,prefix,prefix_len) : !strnicmp(p,prefix,prefix_len))
+          {
+            p+=prefix_len;
+            while (*p == ' ') p++;
+            if (m_case_sensitive ? !strncmp(p,name,nlen) : !strnicmp(p,name,nlen))
+            {
+              const char *np = p+nlen;
+              while (*np == ' ') np++;
+
+              if (*np == '(')
+              {
+                lstrcpyn_safe(sstr,p,sstr_sz);
+                return 4;
+              }
+            }
+          }
+          p++;
+        }
+      }
+    }
+  }
+
+  if ((chkmask&2) && m_added_funclist)
+  {
+    char **p=m_added_funclist->GetPtr(name);
+    if (p && *p)
+    {
+      lstrcpyn_safe(sstr,*p,sstr_sz);
+      return 2;
+    }
+  }
+
+  if (chkmask & 1)
+  {
+    peek_lock();
+    NSEEL_VMCTX vm = peek_want_VM_funcs() ? peek_get_VM() : NULL;
+    for (int x=0;;x++)
+    {
+      functionType *f = nseel_getFunctionFromTableEx((compileContext*)vm,x);
+      if (!f) break;
+      if (f && !stricmp(name,f->name))
+      {
+        snprintf(sstr,sstr_sz,"'%s' is a function that requires %d parameters", f->name,f->nParams&0xff);
+        peek_unlock();
+        return 1;
+      }
+    }
+    peek_unlock();
+  }
+
+  return 0;
+}
+bool EEL_Editor::peek_get_variable_info(const char *name, char *sstr, size_t sstr_sz)
+{
+  peek_lock();
+  NSEEL_VMCTX vm = peek_get_VM();
+  EEL_F *vptr=NSEEL_VM_getvar(vm,name);
+  double v=0.0;
+  if (vptr) v=*vptr;
+  peek_unlock();
+
+  if (!vptr)  return false;
+
+  int good_len=-1;
+  snprintf(sstr,sstr_sz,"%s=%.14f",name,v);
+
+  if (vm && v > -1.0 && v < NSEEL_RAM_ITEMSPERBLOCK*NSEEL_RAM_BLOCKS)
+  {
+    const unsigned int w = (unsigned int) (v+NSEEL_CLOSEFACTOR);
+    EEL_F *dv = NSEEL_VM_getramptr_noalloc(vm,w,NULL);
+    if (dv)
+    {
+      snprintf_append(sstr,sstr_sz," [0x%06x]=%.14f",w,*dv);
+      good_len=-2;
+    }
+    else
+    {
+      good_len = strlen(sstr);
+      snprintf_append(sstr,sstr_sz," [0x%06x]=<uninit>",w);
+    }
+  }
+
+  char buf[512];
+  buf[0]=0;
+  if (peek_get_numbered_string_value(v,buf,sizeof(buf)))
+  {
+    if (good_len==-2)
+      snprintf_append(sstr,sstr_sz," %.0f(str)=%s",v,buf);
+    else
+    {
+      if (good_len>=0) sstr[good_len]=0; // remove [addr]=<uninit> if a string and no ram
+      snprintf_append(sstr,sstr_sz," (str)=%s",buf);
+    }
+  }
+  return true;
+}
 
 void EEL_Editor::doWatchInfo(int c)
 {
-  if (!m_has_peek) return;
-
     // determine the word we are on, check its value in the effect
-  char sstr[512];
+  char sstr[512], buf[512];
   lstrcpyn_safe(sstr,"Use this on a valid symbol name", sizeof(sstr));
   WDL_FastString *t=m_text.Get(m_curs_y);
   char curChar=0;
@@ -996,7 +1026,7 @@ void EEL_Editor::doWatchInfo(int c)
       bool ok = false;
       if (!m_selecting)
       {
-        if (eel_sh_get_matching_pos_for_pos(&m_text,minx=bytex,miny=m_curs_y,&maxx, &maxy,NULL,this))
+        if (eel_sh_get_matching_pos_for_pos(&m_text,minx=m_curs_x,miny=m_curs_y,&maxx, &maxy,NULL,this))
         {
           if (maxy==miny)
           {
@@ -1046,7 +1076,7 @@ void EEL_Editor::doWatchInfo(int c)
             int tmp=s->GetLength();
             if (sx > tmp) sx=tmp;
       
-            if (x == maxy) ex=wdl_min(maxx,tmp);
+            if (x == maxy) ex=min(maxx,tmp);
             else ex=tmp;
       
             if (code.GetLength()) code.Append("\r\n");
@@ -1056,36 +1086,155 @@ void EEL_Editor::doWatchInfo(int c)
       }
       if (code.Get()[0])
       {
-        Watch_Code(code.Get(),sstr,sizeof(sstr));
+        if (m_selecting && (GetAsyncKeyState(VK_SHIFT)&0x8000))
+        {
+          peek_lock();
+          NSEEL_CODEHANDLE ch;
+          NSEEL_VMCTX vm = peek_get_VM();
+
+          if (vm && (ch = NSEEL_code_compile_ex(vm,code.Get(),1,0)))
+          {
+            codeHandleType *p = (codeHandleType*)ch;
+            code.Ellipsize(3,20);
+            const char *errstr = "failed writing to";
+            if (p->code)
+            {
+              buf[0]=0;
+              GetTempPath(sizeof(buf)-64,buf);
+              lstrcatn(buf,"jsfx-out",sizeof(buf));
+              FILE *fp = fopen(buf,"wb");
+              if (fp)
+              {
+                errstr="wrote to";
+                fwrite(p->code,1,p->code_size,fp);
+                fclose(fp);
+              }
+            }
+            snprintf(sstr,sizeof(sstr),"Expression '%s' compiled to %d bytes, %s temp/jsfx-out",code.Get(),p->code_size, errstr);
+            NSEEL_code_free(ch);
+          }
+          else
+          {
+            code.Ellipsize(3,20);
+            snprintf(sstr,sizeof(sstr),"Expression '%s' could not compile",code.Get());
+          }
+          peek_unlock();
+        }
+        else
+        {
+          WDL_FastString code2;
+          code2.Set("__debug_watch_value = (((((");
+          code2.Append(code.Get());
+          code2.Append(")))));");
+      
+          peek_lock();
+
+          NSEEL_VMCTX vm = peek_get_VM();
+
+          EEL_F *vptr=NULL;
+          double v=0.0;
+          const char *err="Invalid context";
+          if (vm)
+          {
+            NSEEL_CODEHANDLE ch = NSEEL_code_compile_ex(vm,code2.Get(),1,0);
+            if (!ch) err = "Error parsing";
+            else
+            {
+              NSEEL_code_execute(ch);
+              NSEEL_code_free(ch);
+              vptr = NSEEL_VM_getvar(vm,"__debug_watch_value");
+              if (vptr) v = *vptr;
+            }
+          }
+
+          peek_unlock();
+
+          {
+            // remove whitespace from code for display
+            int x;
+            bool lb=true;
+            for (x=0;x<code.GetLength();x++)
+            {
+              if (isspace(code.Get()[x]))
+              {
+                if (lb) code.DeleteSub(x--,1);
+                lb=true;
+              }
+              else
+              {
+                lb=false;
+              }
+            }
+            if (lb && code.GetLength()>0) code.SetLen(code.GetLength()-1);
+          }
+
+          code.Ellipsize(3,20);
+          if (vptr)
+          {
+            snprintf(sstr,sizeof(sstr),"Expression '%s' evaluates to %.14f",code.Get(),v);
+          }
+          else
+          {
+            snprintf(sstr,sizeof(sstr),"Error evaluating '%s': %s",code.Get(),err?err:"Unknown error");
+          }
+        }
       }
       // compile+execute code within () as debug_watch_value = ( code )
       // show value (or err msg)
     }
-    else if (curChar && (isalnum(curChar) || curChar == '_' || curChar == '.' || curChar == '#')) 
+    else if (curChar>0 && (isalnum(curChar) || curChar == '_' || curChar == '.' || curChar == '#')) 
     {
       const int bytex = WDL_utf8_charpos_to_bytepos(p,m_curs_x);
       const char *lp=p+bytex;
       const char *rp=lp + WDL_utf8_charpos_to_bytepos(lp,1);
-      while (lp >= p && (isalnum(*lp) || *lp == '_' || *lp == '.')) lp--;
+      while (lp >= p && *lp > 0 && (isalnum(*lp) || *lp == '_' || (*lp == '.' && (lp==p || lp[-1]!='.')))) lp--;
       if (lp < p || *lp != '#') lp++;
-      while (*rp && (isalnum(*rp) || *rp == '_' || *rp == '.')) rp++;
+      while (*rp && *rp > 0 && (isalnum(*rp) || *rp == '_' || (*rp == '.' && rp[1] != '.'))) rp++;
 
-      if (Watch_OnContextHelp(lp,rp,c, sstr,sizeof(sstr))) return;
+      if (*lp == '#' && rp > lp+1)
+      {
+        WDL_FastString n;
+        lp++;
+        n.Set(lp,rp-lp);
+        int idx;
+        if ((idx=peek_get_named_string_value(n.Get(),buf,sizeof(buf)))>=0) snprintf(sstr,sizeof(sstr),"#%s(%d)=%s",n.Get(),idx,buf);
+        else snprintf(sstr,sizeof(sstr),"#%s not found",n.Get());
+      }
+      else if (*lp > 0 && (isalpha(*lp) || *lp == '_') && rp > lp)
+      {
+        WDL_FastString n;
+        n.Set(lp,rp-lp);
 
+        if (c==KEY_F1)
+        {
+          on_help(n.Get(),0);
+          return;
+        }
+
+        int f = peek_get_function_info(n.Get(),sstr,sizeof(sstr),~0,-1);
+
+        if (!f) f = peek_get_variable_info(n.Get(),sstr,sizeof(sstr))?1:0;
+        if (!f) snprintf(sstr,sizeof(sstr),"'%s' NOT FOUND",n.Get());
+      }
     }
   }
-  if (curChar && Watch_OnContextHelp(&curChar,&curChar,c,sstr,sizeof(sstr))) return;
+  if (c==KEY_F1)
+  {
+    on_help(NULL,(int)curChar);
+    return;
+  }
 
-  if (sstr[0]) draw_message(sstr);
   setCursor();
+  draw_message(sstr);
 }
 
 
 void EEL_Editor::draw_bottom_line()
 {
-#define BOLD(x) { attrset(m_color_bottomline|A_BOLD); addstr(x); attrset(m_color_bottomline&~A_BOLD); }
+#define BOLD(x) { attrset(COLOR_BOTTOMLINE|A_BOLD); addstr(x); attrset(COLOR_BOTTOMLINE&~A_BOLD); }
+  addstr("ma"); BOLD("T"); addstr("ch");
   BOLD(" S"); addstr("ave");
-  if (m_has_peek)
+  if (peek_get_VM())
   {
     addstr(" pee"); BOLD("K");
   }
@@ -1104,9 +1253,11 @@ void EEL_Editor::draw_bottom_line()
 
 int EEL_Editor::onChar(int c)
 {
-  if (!m_state && !SHIFT_KEY_DOWN && !ALT_KEY_DOWN) switch (c)
+  if ((m_ui_state == UI_STATE_NORMAL || m_ui_state == UI_STATE_MESSAGE) && 
+      (c == 'K'-'A'+1 || c == 'S'-'A'+1 || !SHIFT_KEY_DOWN) && !ALT_KEY_DOWN) switch (c)
   {
   case KEY_F1:
+    if (CTRL_KEY_DOWN) break;
   case 'K'-'A'+1:
     doWatchInfo(c);
   return 0;
@@ -1123,23 +1274,10 @@ int EEL_Editor::onChar(int c)
     {
       WDL_FastString *txtstr=m_text.Get(m_curs_y);
       const char *txt=txtstr?txtstr->Get():NULL;
-      if (txt && !strncmp(txt,"import",6) && isspace(txt[6]))
+      char fnp[2048];
+      if (txt && line_has_openable_file(txt,WDL_utf8_charpos_to_bytepos(txt,m_curs_x),fnp,sizeof(fnp)))
       {
-        char fnp[512];
-        {
-          const char *p=txt+6;
-          while (*p == ' ') p++;
-          lstrcpyn_safe(fnp,p,sizeof(fnp));
-        }
-        //remove trailing whitespace
-        {
-          char *ep = fnp;
-          while (*ep) ep++;
-          while (ep > fnp && (ep[-1] == '\n' || ep[-1] == '\t' || ep[-1] == ' ')) *--ep = 0;
-        }
-        if (!fnp[0]) return 0; // no filename
-
-        MultiTab_Editor::OpenFileInTab(fnp);
+        WDL_CursesEditor::OpenFileInTab(fnp);
       }
     }
   return 0;
@@ -1149,16 +1287,117 @@ int EEL_Editor::onChar(int c)
   return 0;
   }
 
-  return MultiTab_Editor::onChar(c);
+  return WDL_CursesEditor::onChar(c);
+}
+
+void EEL_Editor::draw_top_line()
+{
+  if (m_curs_x >= m_suggestion_x && m_curs_y == m_suggestion_y && m_suggestion.GetLength())
+  {
+    const char *p=m_suggestion.Get();
+    char str[512];
+    if (WDL_utf8_get_charlen(m_suggestion.Get()) > COLS)
+    {
+      int l = WDL_utf8_charpos_to_bytepos(m_suggestion.Get(),COLS-4);
+      if (l > sizeof(str)-6) l = sizeof(str)-6;
+      lstrcpyn(str, m_suggestion.Get(), l+1);
+      strcat(str, "...");
+      p=str;
+    }
+
+    attrset(COLOR_TOPLINE|A_BOLD);
+    bkgdset(COLOR_TOPLINE);
+    move(0, 0);
+    addstr(p);
+    clrtoeol();
+    attrset(0);
+    bkgdset(0);
+  }
+  else
+  {
+    m_suggestion_x=m_suggestion_y=-1;
+    if (m_suggestion.GetLength()) m_suggestion.Set("");
+    WDL_CursesEditor::draw_top_line();
+  }
 }
 
 
 void EEL_Editor::onRightClick(HWND hwnd)
 {
-  doWatchInfo(0);
+  WDL_LogicalSortStringKeyedArray<int> flist(m_case_sensitive);
+  int i;
+  if (!(GetAsyncKeyState(VK_CONTROL)&0x8000) && m_function_prefix && *m_function_prefix)
+  {
+    const char *prefix = m_function_prefix;
+    const int prefix_len = (int) strlen(m_function_prefix);
+    for (i=0; i < m_text.GetSize(); ++i)
+    {
+      WDL_FastString* s=m_text.Get(i);
+      const char* p=s ? s->Get() : NULL;
+      if (p) while (*p)
+      {
+        if (m_case_sensitive ? !strncmp(p,prefix,prefix_len) : !strnicmp(p,prefix,prefix_len))
+        {
+          p+=prefix_len;
+          while (*p == ' ') p++;
+          if ((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || *p == '_')
+          {
+            const char *q = p+1;
+            while ((*q >= '0' && *q <= '9') || 
+                   (*q >= 'a' && *q <= 'z') || 
+                   (*q >= 'A' && *q <= 'Z') || 
+                   *q == '_' || *q == '.') q++;
+
+            while (*q == ' ') q++;
+            if (*q == '(')
+            {
+              while (*q && *q != ')') q++;
+              if (*q) q++;
+
+              char buf[128];
+              lstrcpyn(buf, p, min(q-p+1, sizeof(buf)));
+              if (strlen(buf) > sizeof(buf)-2) lstrcpyn(buf+sizeof(buf)-5, "...", 4);
+              flist.AddUnsorted(buf, i);
+            }
+          }
+        }
+        p++;
+      }
+    }
+  }
+  if (flist.GetSize())
+  {
+    flist.Resort();
+    HMENU hm=CreatePopupMenu();
+    int pos=0;
+    for (i=0; i < flist.GetSize(); ++i)
+    {
+      const char* fname=NULL;
+      int line=flist.Enumerate(i, &fname);
+      InsertMenu(hm, pos++, MF_STRING|MF_BYPOSITION, line+1, fname);
+    }
+    POINT p;
+    GetCursorPos(&p);
+    int ret=TrackPopupMenu(hm, TPM_NONOTIFY|TPM_RETURNCMD, p.x, p.y, 0, hwnd, NULL);
+    DestroyMenu(hm);
+    if (ret-- > 0)
+    {
+      m_curs_y=ret;
+      m_select_x1=0;
+      m_select_x2=strlen(m_text.Get(ret)->Get());
+      m_select_y1=m_select_y2=ret;
+      m_selecting=1;
+      setCursor(0,0.25);
+    }
+  }
+  else
+  {
+    doWatchInfo(0);
+  }
 }
 
 
+#ifdef WDL_IS_FAKE_CURSES
 
 LRESULT EEL_Editor::onMouseMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
@@ -1183,15 +1422,6 @@ LRESULT EEL_Editor::onMouseMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
     break;
 
   }
-  return MultiTab_Editor::onMouseMessage(hwnd,uMsg,wParam,lParam);
+  return WDL_CursesEditor::onMouseMessage(hwnd,uMsg,wParam,lParam);
 }
-
-void EEL_Editor::Watch_Code(const char *code, char *sstr, size_t sstr_size)
-{
-  lstrcpyn_safe(sstr,"not implemented",sstr_size);
-}
-bool EEL_Editor::Watch_OnContextHelp(const char *lp, const char *rp, int c, char *sstr, size_t sstr_size)
-{
-  lstrcpyn_safe(sstr,"not implemented",sstr_size);
-  return false;
-}
+#endif

@@ -354,7 +354,9 @@ void _asm_gmegabuf_end(void);
   DECL_ASMFUNC(uminus)
   DECL_ASMFUNC(invsqrt)
   DECL_ASMFUNC(dbg_getstackptr)
+#ifdef NSEEL_EEL1_COMPAT_MODE
   DECL_ASMFUNC(exec2)
+#endif
 
   DECL_ASMFUNC(stack_push)
   DECL_ASMFUNC(stack_pop)
@@ -556,6 +558,8 @@ static functionType fnTable1[] = {
   {"memcpy",_asm_generic3parm,_asm_generic3parm_end,3,{&__NSEEL_RAM_MemCpy},NSEEL_PProc_RAM},
   {"memset",_asm_generic3parm,_asm_generic3parm_end,3,{&__NSEEL_RAM_MemSet},NSEEL_PProc_RAM},
   {"__memtop",_asm_generic1parm,_asm_generic1parm_end,1,{&__NSEEL_RAM_MemTop},NSEEL_PProc_RAM},
+  {"mem_set_values",_asm_generic2parm_retd,_asm_generic2parm_retd_end,2|BIF_TAKES_VARPARM|BIF_RETURNSONSTACK,{&__NSEEL_RAM_Mem_SetValues},NSEEL_PProc_RAM},
+  {"mem_get_values",_asm_generic2parm_retd,_asm_generic2parm_retd_end,2|BIF_TAKES_VARPARM|BIF_RETURNSONSTACK,{&__NSEEL_RAM_Mem_GetValues},NSEEL_PProc_RAM},
 
   {"stack_push",nseel_asm_stack_push,nseel_asm_stack_push_end,1|BIF_FPSTACKUSE(0),{0,},NSEEL_PProc_Stack},
   {"stack_pop",nseel_asm_stack_pop,nseel_asm_stack_pop_end,1|BIF_FPSTACKUSE(1),{0,},NSEEL_PProc_Stack},
@@ -1166,6 +1170,15 @@ opcodeRec *nseel_resolve_named_symbol(compileContext *ctx, opcodeRec *rec, int p
     }
     if (match_parmcnt_pos < 3) match_parmcnt[match_parmcnt_pos++] = 2;
   }
+  else if (!stricmp("__denormal_likely",sname) || !stricmp("__denormal_unlikely",sname))
+  {
+    if (parmcnt == 1)
+    {
+      rec->opcodeType = OPCODETYPE_FUNC1;
+      rec->fntype = !stricmp("__denormal_likely",sname) ? FN_DENORMAL_LIKELY : FN_DENORMAL_UNLIKELY;
+      return rec;
+    }
+  }
     
   for (i=0;nseel_getFunctionFromTableEx(ctx,i);i++)
   {
@@ -1496,9 +1509,6 @@ static void *nseel_getBuiltinFunctionAddress(compileContext *ctx,
     case FN_ASSIGN:
       *abiInfo = BIF_FPSTACKUSE(1)|BIF_CLEARDENORMAL;
     RF(assign);
-#ifndef EEL_TARGET_PORTABLE
-    case FN_JOIN_STATEMENTS: *abiInfo = BIF_WONTMAKEDENORMAL; RF(exec2); // shouldn't ever be used anyway, but scared to remove
-#endif
     case FN_AND: *abiInfo = BIF_RETURNSONSTACK|BIF_TWOPARMSONFPSTACK_LAZY|BIF_FPSTACKUSE(2)|BIF_CLEARDENORMAL; RF(and);
     case FN_OR: *abiInfo = BIF_RETURNSONSTACK|BIF_TWOPARMSONFPSTACK_LAZY|BIF_FPSTACKUSE(2)|BIF_CLEARDENORMAL; RF(or);
     case FN_XOR:
@@ -1511,7 +1521,6 @@ static void *nseel_getBuiltinFunctionAddress(compileContext *ctx,
       *abiInfo = BIF_RETURNSONSTACK|BIF_TWOPARMSONFPSTACK|BIF_FPSTACKUSE(2)|BIF_CLEARDENORMAL;
     RF(shl);
 #ifndef EEL_TARGET_PORTABLE
-    case FN_UPLUS: *abiInfo = BIF_WONTMAKEDENORMAL; RF(uplus);   // shouldn't ever be used anyway, but scared to remove
     case FN_NOTNOT: *abiInfo = BIF_LASTPARM_ASBOOL|BIF_RETURNSBOOL|BIF_FPSTACKUSE(1); RF(uplus);
 #else
     case FN_NOTNOT: *abiInfo = BIF_LASTPARM_ASBOOL|BIF_RETURNSBOOL|BIF_FPSTACKUSE(1); RF(bnotnot);
@@ -1878,7 +1887,6 @@ start_over: // when an opcode changed substantially in optimization, goto here t
             case FN_NOTNOT: RESTART_DIRECTVALUE(fabs(op->parms.parms[0]->parms.dv.directValue)>=NSEEL_CLOSEFACTOR ? 1.0 : 0.0);
             case FN_NOT:    RESTART_DIRECTVALUE(fabs(op->parms.parms[0]->parms.dv.directValue)>=NSEEL_CLOSEFACTOR ? 0.0 : 1.0);
             case FN_UMINUS: RESTART_DIRECTVALUE(- op->parms.parms[0]->parms.dv.directValue);
-            case FN_UPLUS:  RESTART_DIRECTVALUE(op->parms.parms[0]->parms.dv.directValue);
           }
         }
         else if (op->fntype == FN_NOT || op->fntype == FN_NOTNOT)
@@ -1887,7 +1895,6 @@ start_over: // when an opcode changed substantially in optimization, goto here t
           {
             switch (op->parms.parms[0]->fntype)
             {
-              case FN_UPLUS:
               case FN_UMINUS:
               case FN_NOTNOT: // ignore any NOTNOTs UMINUS or UPLUS, they would have no effect anyway
                 op->parms.parms[0] = op->parms.parms[0]->parms.parms[0];
@@ -2654,7 +2661,11 @@ static int compileNativeFunctionCall(compileContext *ctx, opcodeRec *op, unsigne
 
   if (cfunc_abiinfo & BIF_TAKES_VARPARM)
   {
-    const int max_params=256; // on x86-64, this means at most 2k of stack use, which should still be safe (going close to 4k would be less safe)
+#if defined(__arm__) || defined(__ppc__)
+    const int max_params=4096; // 32kb max offset addressing for stack, so 4096*4 = 16384, should be safe
+#else
+    const int max_params=32768; // sanity check, the stack is free to grow on x86/x86-64
+#endif
     int x;
     // this mode is less efficient in that it creates a list of pointers on the stack to pass to the function
     // but it is more flexible and works for >3 parameters.
@@ -2678,9 +2689,25 @@ static int compileNativeFunctionCall(compileContext *ctx, opcodeRec *op, unsigne
 
     if (restore_stack_amt)
     {
-      if (bufOut_len < parm_size+GLUE_MOVE_STACK_SIZE) RET_MINUS1_FAIL("insufficient size for varparm")
-      if (bufOut) GLUE_MOVE_STACK(bufOut+parm_size, - restore_stack_amt); 
-      parm_size += GLUE_MOVE_STACK_SIZE;
+      int offs = restore_stack_amt;
+      while (offs > 0)
+      {
+        int amt = offs;
+        if (amt > 4096) amt=4096;
+
+        if (bufOut_len < parm_size+GLUE_MOVE_STACK_SIZE) RET_MINUS1_FAIL("insufficient size for varparm")
+        if (bufOut) GLUE_MOVE_STACK(bufOut+parm_size, - amt);
+        parm_size += GLUE_MOVE_STACK_SIZE;
+        offs -= amt;
+
+        if (offs>0) // make sure this page is in memory
+        {
+          if (bufOut_len < parm_size+GLUE_STORE_P1_TO_STACK_AT_OFFS_SIZE) 
+            RET_MINUS1_FAIL("insufficient size for varparm stackchk")
+          if (bufOut) GLUE_STORE_P1_TO_STACK_AT_OFFS(bufOut+parm_size,0);
+          parm_size += GLUE_STORE_P1_TO_STACK_AT_OFFS_SIZE;
+        }
+      }
     }
 
     if (op->opcodeType == OPCODETYPE_FUNCX)
@@ -3513,27 +3540,46 @@ void dumpOpcodeTree(compileContext *ctx, FILE *fp, opcodeRec *op, int indent_amt
 #endif
 static int compileOpcodesInternal(compileContext *ctx, opcodeRec *op, unsigned char *bufOut, int bufOut_len, int *computTableSize, const namespaceInformation *namespacePathToThis, int *calledRvType, int preferredReturnValues, int *fpStackUse, int *canHaveDenormalOutput)
 {
-  int rv_offset=0;
+  int rv_offset=0, denormal_force=-1;
   if (!op) RET_MINUS1_FAIL("coi !op")
 
   *fpStackUse=0;
-  // special case: statement delimiting means we can process the left side into place, and iteratively do the second parameter without recursing
-  // also we don't need to save/restore anything to the stack (which the normal 2 parameter function processing does)
-  while (op->opcodeType == OPCODETYPE_FUNC2 && op->fntype == FN_JOIN_STATEMENTS)
+  for (;;)
   {
-    int fUse;
-    int parm_size = compileOpcodes(ctx,op->parms.parms[0],bufOut,bufOut_len, computTableSize, namespacePathToThis, RETURNVALUE_IGNORE, NULL,&fUse,NULL);
-    if (parm_size < 0) RET_MINUS1_FAIL("coc join fail")
-    op = op->parms.parms[1];
-    if (!op) RET_MINUS1_FAIL("join got to null")
+    // special case: statement delimiting means we can process the left side into place, and iteratively do the second parameter without recursing
+    // also we don't need to save/restore anything to the stack (which the normal 2 parameter function processing does)
+    if (op->opcodeType == OPCODETYPE_FUNC2 && op->fntype == FN_JOIN_STATEMENTS)
+    {
+      int fUse;
+      int parm_size = compileOpcodes(ctx,op->parms.parms[0],bufOut,bufOut_len, computTableSize, namespacePathToThis, RETURNVALUE_IGNORE, NULL,&fUse,NULL);
+      if (parm_size < 0) RET_MINUS1_FAIL("coc join fail")
+      op = op->parms.parms[1];
+      if (!op) RET_MINUS1_FAIL("join got to null")
 
-    if (fUse>*fpStackUse) *fpStackUse=fUse;
-    if (bufOut) bufOut += parm_size;
-    bufOut_len -= parm_size;
-    rv_offset += parm_size;
+      if (fUse>*fpStackUse) *fpStackUse=fUse;
+      if (bufOut) bufOut += parm_size;
+      bufOut_len -= parm_size;
+      rv_offset += parm_size;
 #ifdef DUMP_OPS_DURING_COMPILE
-    if (op->opcodeType != OPCODETYPE_FUNC2 || op->fntype != FN_JOIN_STATEMENTS) dumpOp(ctx,op,0);
+      if (op->opcodeType != OPCODETYPE_FUNC2 || op->fntype != FN_JOIN_STATEMENTS) dumpOp(ctx,op,0);
 #endif
+      denormal_force=-1;
+    }
+    // special case: __denormal_likely(), __denormal_unlikely()
+    else if (op->opcodeType == OPCODETYPE_FUNC1 && (op->fntype == FN_DENORMAL_LIKELY || op->fntype == FN_DENORMAL_UNLIKELY))
+    {
+      denormal_force = op->fntype == FN_DENORMAL_LIKELY;
+      op = op->parms.parms[0];
+    }
+    else 
+    {
+      break;
+    }
+  }
+  if (denormal_force >= 0 && canHaveDenormalOutput)
+  {  
+    *canHaveDenormalOutput = denormal_force;
+    canHaveDenormalOutput = &denormal_force; // prevent it from being changed by functions below
   }
 
   // special case: BAND/BOR
@@ -5255,7 +5301,7 @@ EEL_F *nseel_int_register_var(compileContext *ctx, const char *name, int isReg, 
 
   if (!strnicmp(name,"_global.",8) && name[8])
   {
-    EEL_F *a=get_global_var(ctx,name+8,1);
+    EEL_F *a=get_global_var(ctx,name+8,isReg >= 0);
     if (a) return a;
   }
   for (wb = 0; wb < ctx->varTable_numBlocks; wb ++)
@@ -5276,6 +5322,12 @@ EEL_F *nseel_int_register_var(compileContext *ctx, const char *name, int isReg, 
       else if (!strnicmp(plist[ti],name,NSEEL_MAX_VARIABLE_NAMELEN))
       {
         varNameHdr *v = ((varNameHdr*)plist[ti])-1;
+        if (isReg < 0)
+        {
+          EEL_F *p; 
+          return (ctx->varTable_Values && NULL != (p = ctx->varTable_Values[wb])) ? p + ti : NULL;
+        }
+
         v->refcnt++;
         if (isReg) v->isreg=isReg;
         if (namePtrOut) *namePtrOut = plist[ti];
@@ -5284,6 +5336,7 @@ EEL_F *nseel_int_register_var(compileContext *ctx, const char *name, int isReg, 
     }
     if (ti < NSEEL_VARS_PER_BLOCK) break;
   }
+  if (isReg < 0) return NULL;
 
   if (wb == ctx->varTable_numBlocks && match_wb >=0 && match_ti >= 0)
   {
@@ -5383,6 +5436,20 @@ EEL_F *NSEEL_VM_regvar(NSEEL_VMCTX _ctx, const char *var)
   }
   
   return nseel_int_register_var(ctx,var,1,NULL);
+}
+
+EEL_F *NSEEL_VM_getvar(NSEEL_VMCTX _ctx, const char *var)
+{
+  compileContext *ctx = (compileContext *)_ctx;
+  if (!ctx) return 0;
+  
+  if (!strnicmp(var,"reg",3) && strlen(var) == 5 && isdigit(var[3]) && isdigit(var[4]))
+  {
+    EEL_F *a=get_global_var(ctx,var,0);
+    if (a) return a;
+  }
+  
+  return nseel_int_register_var(ctx,var,-1,NULL);
 }
 
 int  NSEEL_VM_get_var_refcnt(NSEEL_VMCTX _ctx, const char *name)

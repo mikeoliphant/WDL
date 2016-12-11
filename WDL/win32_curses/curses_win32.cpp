@@ -143,6 +143,8 @@ void __init_pair(win32CursesCtx *ctx, int pair, int fcolor, int bcolor)
   if (!ctx || pair < 0 || pair >= COLOR_PAIRS) return;
 
   pair=COLOR_PAIR(pair);
+  fcolor &= RGB(255,255,255);
+  bcolor &= RGB(255,255,255);
 
   ctx->colortab[pair][0]=fcolor;
   ctx->colortab[pair][1]=bcolor;
@@ -153,6 +155,8 @@ void __init_pair(win32CursesCtx *ctx, int pair, int fcolor, int bcolor)
   ctx->colortab[pair|A_BOLD][0]=fcolor;
   ctx->colortab[pair|A_BOLD][1]=bcolor;
 }
+
+int *curses_win32_global_user_colortab;
 
 static LRESULT xlateKey(int msg, WPARAM wParam, LPARAM lParam)
 {
@@ -273,6 +277,13 @@ static void m_reinit_framebuffer(win32CursesCtx *ctx)
     free(ctx->m_framebuffer);
     ctx->m_framebuffer=(win32CursesFB *)malloc(sizeof(win32CursesFB)*ctx->lines*ctx->cols);
     if (ctx->m_framebuffer) memset(ctx->m_framebuffer, 0,sizeof(win32CursesFB)*ctx->lines*ctx->cols);
+
+    const int *tab = ctx->user_colortab ? ctx->user_colortab : curses_win32_global_user_colortab;
+    if (tab)
+    {
+      ctx->user_colortab_lastfirstval=tab[0];
+      for (int x=0;x<COLOR_PAIRS;x++) __init_pair(ctx,x,tab[x*2],tab[x*2+1]);
+    }
 }
 #ifndef WM_MOUSEWHEEL
 #define WM_MOUSEWHEEL 0x20A
@@ -412,10 +423,19 @@ LRESULT CALLBACK cursesWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lP
     if (wParam==CURSOR_BLINK_TIMER && ctx)
     {
       const char la = ctx->cursor_state;
-      ctx->cursor_state= (ctx->cursor_state+1)%CURSOR_BLINK_TIMER_ZEROEVERY;
-      
-      if (!!ctx->cursor_state != !!la)
+      ctx->cursor_state = (ctx->cursor_state+1)%CURSOR_BLINK_TIMER_ZEROEVERY;
+
+      const int *tab = ctx->user_colortab ? ctx->user_colortab : curses_win32_global_user_colortab;
+      if (tab && tab[0] != ctx->user_colortab_lastfirstval)
+      {
+	m_reinit_framebuffer(ctx);
+        if (ctx->do_update) ctx->do_update(ctx);
+	else ctx->need_redraw|=1;
+      }
+      else if (!!ctx->cursor_state != !!la)
+      {
         __move(ctx,ctx->m_cursor_y,ctx->m_cursor_x,1);// refresh cursor
+      }
     }
   return 0;
     case WM_CREATE:
@@ -423,8 +443,8 @@ LRESULT CALLBACK cursesWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lP
       // this only is called on osx or from standalone, it seems, since on win32 ctx isnt set up yet
       ctx->m_hwnd=hwnd;
       #ifndef _WIN32
-	      m_reinit_framebuffer(ctx);
-	      ctx->need_redraw|=1;
+	m_reinit_framebuffer(ctx);
+	ctx->need_redraw|=1;
       #endif
       SetTimer(hwnd,CURSOR_BLINK_TIMER,CURSOR_BLINK_TIMER_MS,NULL);
     return 0;
@@ -742,7 +762,7 @@ void reInitializeContext(win32CursesCtx *ctx)
                         ANSI_CHARSET,
                         OUT_DEFAULT_PRECIS,
                         CLIP_DEFAULT_PRECIS,
-                        NONANTIALIASED_QUALITY,//DEFAULT_QUALITY,
+                        ANTIALIASED_QUALITY, //NONANTIALIASED_QUALITY,//DEFAULT_QUALITY,
 #ifdef _WIN32
                         FF_MODERN,
 #else
@@ -761,7 +781,12 @@ void reInitializeContext(win32CursesCtx *ctx)
 
 void __initscr(win32CursesCtx *ctx)
 {
-  __init_pair(ctx,0,RGB(192,192,192),RGB(0,0,0));
+#ifdef WDL_IS_FAKE_CURSES
+  if (!curses_win32_global_user_colortab && (!ctx || !ctx->user_colortab))
+#endif
+  {
+    __init_pair(ctx,0,RGB(192,192,192),RGB(0,0,0));
+  }
 }
 
 void __endwin(win32CursesCtx *ctx)

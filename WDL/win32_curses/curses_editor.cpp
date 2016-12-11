@@ -19,6 +19,7 @@
 #endif
 
 
+
 WDL_FastString WDL_CursesEditor::s_fake_clipboard;
 int WDL_CursesEditor::s_overwrite=0;
 char WDL_CursesEditor::s_search_string[256];
@@ -44,17 +45,12 @@ WDL_CursesEditor::WDL_CursesEditor(void *cursesCtx)
   m_indent_size=2;
   m_cursesCtx = cursesCtx;
 
-  m_color_bottomline = COLOR_PAIR(1);
-  m_color_statustext = COLOR_PAIR(1);
-  m_color_selection = COLOR_PAIR(2);
-  m_color_message = COLOR_PAIR(2);
-
-  m_top_margin=0;
+  m_top_margin=1;
   m_bottom_margin=1;
 
   m_selecting=0;
   m_select_x1=m_select_y1=m_select_x2=m_select_y2=0;
-  m_state=0;
+  m_ui_state=UI_STATE_NORMAL;
   m_offs_x=0;
   m_curs_x=m_curs_y=0;
   m_want_x=-1;
@@ -70,6 +66,7 @@ WDL_CursesEditor::WDL_CursesEditor(void *cursesCtx)
   m_scrollcap_yoffs=0;
   
   m_filelastmod=0;
+  m_status_lastlen=0;
 
 #ifdef WDL_IS_FAKE_CURSES
   if (m_cursesCtx)
@@ -90,8 +87,29 @@ WDL_CursesEditor::WDL_CursesEditor(void *cursesCtx)
   nodelay(stdscr,TRUE);
   raw(); // disable ctrl+C etc. no way to kill if allow quit isn't defined, yay.
   start_color();
-  init_pair(1, COLOR_WHITE, COLOR_BLUE); // normal status lines
-  init_pair(2, COLOR_BLACK, COLOR_CYAN); // value
+
+#ifdef WDL_IS_FAKE_CURSES
+  if (!curses_win32_global_user_colortab && (!m_cursesCtx || !CURSES_INSTANCE->user_colortab))
+#endif
+  {
+  init_pair(1, COLOR_WHITE, COLOR_BLUE);     // COLOR_BOTTOMLINE
+  init_pair(2, COLOR_BLACK, COLOR_CYAN);     // COLOR_SELECTION
+  init_pair(3, RGB(0,255,255),COLOR_BLACK);  // SYNTAX_HIGHLIGHT1
+  init_pair(4, RGB(0,255,0),COLOR_BLACK);    // SYNTAX_HIGHLIGHT2
+  init_pair(5, RGB(96,128,192),COLOR_BLACK); // SYNTAX_COMMENT
+  init_pair(6, COLOR_WHITE, COLOR_RED);      // SYNTAX_ERROR
+  init_pair(7, RGB(255,255,0), COLOR_BLACK); // SYNTAX_FUNC
+
+#ifdef WDL_IS_FAKE_CURSES
+  init_pair(8, RGB(255,128,128), COLOR_BLACK);  // SYNTAX_REGVAR
+  init_pair(9, RGB(0,192,255), COLOR_BLACK);    // SYNTAX_KEYWORD
+  init_pair(10, RGB(255,192,192), COLOR_BLACK); // SYNTAX_STRING
+  init_pair(11, RGB(192,255,128), COLOR_BLACK); // SYNTAX_STRINGVAR
+  init_pair(12, COLOR_BLACK, COLOR_CYAN);       // COLOR_MESSAGE (maps to COLOR_SELECTION)
+  init_pair(13, COLOR_WHITE, COLOR_RED);        // COLOR_TOPLINE (maps to SYNTAX_ERROR)
+  init_pair(14, RGB(192,192,0), COLOR_BLACK);   // SYNTAX_FUNC2
+#endif
+  }
 
   erase();
   refresh();
@@ -118,6 +136,7 @@ int  WDL_CursesEditor::GetPaneDims(int* paney, int* paneh) // returns ypos of di
 int WDL_CursesEditor::getVisibleLines() const { return LINES-m_bottom_margin-m_top_margin; }
 
 
+#ifdef WDL_IS_FAKE_CURSES
 LRESULT WDL_CursesEditor::onMouseMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
   static int s_mousedown[2];
@@ -251,8 +270,63 @@ LRESULT WDL_CursesEditor::onMouseMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LP
       }
       break;
     case WM_LBUTTONDBLCLK:
-    case WM_RBUTTONDOWN:
+      if (CURSES_INSTANCE && CURSES_INSTANCE->m_font_w && CURSES_INSTANCE->m_font_h)
+      {
+        const int y = ((short)HIWORD(lParam)) / CURSES_INSTANCE->m_font_h - m_top_margin;
+        const int x = ((short)LOWORD(lParam)) / CURSES_INSTANCE->m_font_w + m_offs_x;
+        WDL_FastString *fs=m_text.Get(y + m_paneoffs_y[m_curpane]);
+        if (fs && y >= 0)
+        {
+          const char *url=fs->Get();
+          
+          while (NULL != (url = strstr(url,"http://")))
+          {
+            if (url != fs->Get() && url[-1] > 0 && isalnum(url[-1]))
+            {
+              url+=7;
+            }
+            else
+            {
+              const int soffs = (int) (url - fs->Get());
+              char tmp[512];
+              char *p=tmp;
+              while (p < (tmp+sizeof(tmp)-1) &&
+                    *url && *url != ' ' && *url != ')' && *url != '\t' && *url != '"' && *url != '\'' )
+              {
+                *p++ = *url++;
+              }
+              *p=0;
+              if (strlen(tmp) >= 10 && x >= soffs && x<(url-fs->Get()))
+              {
+                ShellExecute(hwnd,"open",tmp,"","",0);
+                return 1;
+              }
+            }
+          }
+        }
+      }
+
     case WM_LBUTTONDOWN:
+      if (CURSES_INSTANCE && CURSES_INSTANCE->m_font_w && CURSES_INSTANCE->m_font_h)
+      {
+        int x = ((short)LOWORD(lParam)) / CURSES_INSTANCE->m_font_w;
+        int y = ((short)HIWORD(lParam)) / CURSES_INSTANCE->m_font_h;
+        const int tabcnt=GetTabCount();
+        if (y==0 && tabcnt>1)
+        {
+          int tsz=COLS/tabcnt;
+          // this is duplicated in draw_top_line
+          if (tsz>128)tsz=128;
+          if (tsz<12) tsz=12;
+          SwitchTab(x/tsz,false);
+
+          return 1;
+        }
+      }
+
+      // passthrough
+    case WM_RBUTTONDOWN:
+
     if (CURSES_INSTANCE->m_font_w && CURSES_INSTANCE->m_font_h)
     {
       int mousex=(short)LOWORD(lParam);
@@ -265,7 +339,7 @@ LRESULT WDL_CursesEditor::onMouseMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LP
       if (cy > LINES) cy=LINES;
       if (cy < 0) cy=0;
 
-      m_state=0; // any click clears the state
+      m_ui_state=UI_STATE_NORMAL; // any click clears the state
       s_mousedown[0]=cx;
       s_mousedown[1]=cy;
 
@@ -347,8 +421,8 @@ LRESULT WDL_CursesEditor::onMouseMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LP
           int x1=WDL_utf8_charpos_to_bytepos(s->Get(),m_curs_x);
           int x2=x1+1;
           const char* p=s->Get();
-          while (x1 > 0 && (isalnum(p[x1-1]) || p[x1-1] == '_')) --x1;
-          while (x2 < s->GetLength() && (isalnum(p[x2]) || p[x2] == '_')) ++x2;
+          while (x1 > 0 && p[x1-1] > 0 && (isalnum(p[x1-1]) || p[x1-1] == '_')) --x1;
+          while (x2 < s->GetLength() && p[x2] > 0 && (isalnum(p[x2]) || p[x2] == '_')) ++x2;
           if (x2 > x1)
           {
             m_select_x1=x1;
@@ -410,6 +484,7 @@ LRESULT WDL_CursesEditor::onMouseMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LP
   }
   return 0;
 }
+#endif
 
 
 WDL_CursesEditor::~WDL_CursesEditor()
@@ -574,8 +649,8 @@ void WDL_CursesEditor::draw_status_state()
   int paney[2], paneh[2];
   const int pane_divy=GetPaneDims(paney, paneh);
 
-  attrset(m_color_statustext);
-  bkgdset(m_color_statustext);
+  attrset(COLOR_BOTTOMLINE);
+  bkgdset(COLOR_BOTTOMLINE);
 
   int line=LINES-1;
   const char* whichpane="";
@@ -591,8 +666,25 @@ void WDL_CursesEditor::draw_status_state()
   snprintf(str, sizeof(str), "%sLine %d/%d, Col %d [%s]%s",
     whichpane, m_curs_y+1, m_text.GetSize(), m_curs_x, 
     (s_overwrite ? "OVR" : "INS"), (m_clean_undopos == m_undoStack_pos ? "" : "*"));
+
   int len=strlen(str);
   int x=COLS-len-1;
+  if (!*whichpane)
+  {
+    if (len < m_status_lastlen)
+    {
+      int xpos = COLS-m_status_lastlen-1;
+      if (xpos<0) xpos=0;
+      move(line,xpos);
+      while (xpos++ < x) addstr(" ");
+    }
+    m_status_lastlen = len;
+  }
+  else 
+  {
+    m_status_lastlen=0;
+  }
+
   mvaddnstr(line, x, str, len);
   clrtoeol();
 
@@ -622,8 +714,20 @@ void WDL_CursesEditor::setCursor(int isVscroll, double ycenter)
 
   int redraw=0;
 
-  if (m_curs_x < m_offs_x) { redraw=1; m_offs_x=m_curs_x; }
-  else if (m_curs_x >= m_offs_x + COLS) { m_offs_x=m_curs_x-COLS+1; redraw=1; }
+  if (m_curs_x < m_offs_x) 
+  { 
+    redraw=1; 
+    m_offs_x=m_curs_x; 
+  }
+  else 
+  {
+    const int mw = COLS-3;
+    if (m_curs_x >= m_offs_x + mw)
+    { 
+      m_offs_x=m_curs_x-mw+1; 
+      redraw=1; 
+    }
+  }
 
   int paney[2], paneh[2];
   GetPaneDims(paney, paneh);
@@ -666,12 +770,15 @@ void WDL_CursesEditor::setCursor(int isVscroll, double ycenter)
 
 void WDL_CursesEditor::draw_message(const char *str)
 {
+  if (!CURSES_INSTANCE) return;
+  
   int l=strlen(str);
+  if (l && m_ui_state == UI_STATE_NORMAL) m_ui_state=UI_STATE_MESSAGE;
   if (l > COLS-2) l=COLS-2;
   if (str[0]) 
   {
-    attrset(m_color_message);
-    bkgdset(m_color_message);
+    attrset(COLOR_MESSAGE);
+    bkgdset(COLOR_MESSAGE);
   }
   mvaddnstr(LINES-(m_bottom_margin>1?2:1),0,str,l);
   clrtoeol();
@@ -742,14 +849,14 @@ void WDL_CursesEditor::doDrawString(int y, int line_n, const char *p, int *c_com
 
       if (maxx > minx)
       {
-        attrset(m_color_selection);
+        attrset(COLOR_SELECTION);
         p += WDL_utf8_charpos_to_bytepos(p,m_offs_x+minx);
         mvaddnstr(y,minx, p, WDL_utf8_charpos_to_bytepos(p,maxx-minx));
         attrset(A_NORMAL);
       }
       else if (maxx==minx && !*p)
       {
-        attrset(m_color_selection);
+        attrset(COLOR_SELECTION);
         mvaddstr(y,minx," ");
         attrset(A_NORMAL);
       }
@@ -765,6 +872,8 @@ int WDL_CursesEditor::GetCommentStateForLineStart(int line) // pass current line
 
 void WDL_CursesEditor::draw(int lineidx)
 {
+  if (m_top_margin != 0) m_top_margin = GetTabCount()>1 ? 2 : 1;
+
   int paney[2], paneh[2];
   const int pane_divy=GetPaneDims(paney, paneh);
 
@@ -813,6 +922,8 @@ void WDL_CursesEditor::draw(int lineidx)
   move(m_top_margin,0);
   clrtoeol();
 
+  m_status_lastlen=0;
+
   int pane, i;
   for (pane=0; pane < 2; ++pane)
   {
@@ -837,13 +948,13 @@ void WDL_CursesEditor::draw(int lineidx)
     }
   }
 
-  attrset(m_color_bottomline);
-  bkgdset(m_color_bottomline);
+  attrset(COLOR_BOTTOMLINE);
+  bkgdset(COLOR_BOTTOMLINE);
 
   if (m_bottom_margin>0)
   {
     move(LINES-1, 0);
-#define BOLD(x) { attrset(m_color_bottomline|A_BOLD); addstr(x); attrset(m_color_bottomline&~A_BOLD); }
+#define BOLD(x) { attrset(COLOR_BOTTOMLINE|A_BOLD); addstr(x); attrset(COLOR_BOTTOMLINE&~A_BOLD); }
     if (m_selecting) 
     {
       mvaddstr(LINES-1,0,"SELECTING  ESC:cancel Ctrl+(");
@@ -865,7 +976,6 @@ void WDL_CursesEditor::draw(int lineidx)
         addstr("no"); BOLD("P"); addstr("anes ");
       }
       BOLD("F"); addstr("ind ");
-      addstr("ma"); BOLD("T"); addstr("ch");
       draw_bottom_line();
       addstr(")");
     }
@@ -1071,18 +1181,25 @@ static WDL_FastString *newIndentedFastString(const char *tstr, int indent_to_pos
 
 void WDL_CursesEditor::highlight_line(int line)
 { 
-  if (line >= 0 && line < m_text.GetSize())
+  if (line >= 0 && line <= m_text.GetSize())
   {
+    bool nosel=false;
+    if (line == m_text.GetSize()) { line--; nosel=true; }
+
     m_curs_x=0;
     m_curs_y=line;
 
     WDL_FastString* s=m_text.Get(line);
     if (s && s->GetLength())
     {
-      m_select_x1=0;
-      m_select_x2=WDL_utf8_get_charlen(s->Get());
-      m_select_y1=m_select_y2=m_curs_y;
-      m_selecting=1;
+      if (nosel) m_curs_x = WDL_utf8_get_charlen(s->Get());
+      else
+      {
+        m_select_x1=0;
+        m_select_x2=WDL_utf8_get_charlen(s->Get());
+        m_select_y1=m_select_y2=m_curs_y;
+        m_selecting=1;
+      }
       draw();
     }
 
@@ -1258,16 +1375,115 @@ void WDL_CursesEditor::getLinesFromClipboard(WDL_FastString &buf, WDL_PtrList<co
 
 int WDL_CursesEditor::onChar(int c)
 {
-  if (m_state == -3 || m_state == -4)
+  // multitab
+  if (m_ui_state == UI_STATE_MESSAGE)
+  {
+    m_ui_state=UI_STATE_NORMAL;
+    draw();
+    setCursor();
+  }
+
+  if (m_ui_state == UI_STATE_NORMAL && !SHIFT_KEY_DOWN && !ALT_KEY_DOWN && c =='W'-'A'+1)
+  {
+    if (GetTab(0) == this) return 0; // first in list = do nothing
+
+    if (IsDirty())
+    {
+      m_ui_state=UI_STATE_SAVE_ON_CLOSE;
+      attrset(COLOR_MESSAGE);
+      bkgdset(COLOR_MESSAGE);
+      mvaddstr(LINES-1,0,"Save file before closing (y/N)? ");
+      clrtoeol();
+      attrset(0);
+      bkgdset(0);
+    }
+    else
+    {
+      CloseCurrentTab();
+
+      delete this;
+      // context no longer valid!
+      return 1;
+    }
+    return 0;
+  }
+
+  if (m_ui_state == UI_STATE_SAVE_ON_CLOSE)
+  {
+    if (c>=0 && (isalnum(c) || isprint(c) || c==27))
+    {
+      if (c == 27)
+      {
+        m_ui_state=UI_STATE_NORMAL;
+        draw();
+        draw_message("Cancelled close of file.");
+        setCursor();
+        return 0;
+      }
+      if (toupper(c) == 'N' || toupper(c) == 'Y')
+      {
+        if (toupper(c) == 'Y') 
+        {
+          if(updateFile())
+          {
+            m_ui_state=UI_STATE_NORMAL;
+            draw();
+            draw_message("Error writing file, changes not saved!");
+            setCursor();
+            return 0;
+          }
+        }
+        CloseCurrentTab();
+
+        delete this;
+        // this no longer valid, return 1 to avoid future calls in onChar()
+
+        return 1;
+      }
+    }
+    return 0;
+  }
+  else if (m_ui_state == UI_STATE_SAVE_AS_NEW)
+  {
+    if (c>=0 && (isalnum(c) || isprint(c) || c==27 || c == '\r' || c=='\n'))
+    {
+      m_ui_state=UI_STATE_NORMAL;
+      if (toupper(c) == 'N' || c == 27) 
+      {
+        draw();
+        draw_message("Cancelled create new file.");
+        setCursor();
+        return 0;
+      }
+
+      AddTab(m_newfn.Get());
+    }
+    return 0;
+  }
+
+  if ((c==27 || c==29 || (c >= KEY_F1 && c<=KEY_F10)) && CTRL_KEY_DOWN)
+  {
+    int idx=c-KEY_F1;
+    bool rel=true;
+    if (c==27) idx=-1;
+    else if (c==29) idx=1;
+    else rel=false;
+    SwitchTab(idx,rel);
+
+    return 1;
+  }
+  // end multitab
+
+  if (m_ui_state == UI_STATE_SEARCH || m_ui_state == UI_STATE_SEARCH2)
   {
     switch (c)
     {
        case '\r': case '\n':
-         m_state=0;
+         m_ui_state=UI_STATE_NORMAL;
          runSearch();
        break;
        case 27: 
-         m_state=0; 
+         m_ui_state=UI_STATE_NORMAL; 
          draw();
          setCursor();
          draw_message("Find cancelled.");
@@ -1287,7 +1503,7 @@ int WDL_CursesEditor::onChar(int c)
              p+=sz;
            }
          }
-         m_state=-4; 
+         m_ui_state=UI_STATE_SEARCH2; 
        break;
        case KEY_IC:
          if (!SHIFT_KEY_DOWN && !ALT_KEY_DOWN) break;
@@ -1299,10 +1515,10 @@ int WDL_CursesEditor::onChar(int c)
            getLinesFromClipboard(buf,lines);
            if (lines.Get(0))
            {
-             if (m_state==-3) 
+             if (m_ui_state==UI_STATE_SEARCH) 
              {
                s_search_string[0]=0;
-               m_state=-4;
+               m_ui_state=UI_STATE_SEARCH2;
              }
              lstrcatn(s_search_string,lines.Get(0),sizeof(s_search_string));
            }
@@ -1311,8 +1527,8 @@ int WDL_CursesEditor::onChar(int c)
        default: 
          if (VALIDATE_TEXT_CHAR(c)) 
          { 
-           int l=m_state == -3 ? 0 : strlen(s_search_string); 
-           m_state = -4;
+           int l=m_ui_state == UI_STATE_SEARCH ? 0 : strlen(s_search_string); 
+           m_ui_state = UI_STATE_SEARCH2;
            if (l < (int)sizeof(s_search_string)-8) 
            { 
              WDL_MakeUTFChar(s_search_string+l,c,8);
@@ -1320,10 +1536,10 @@ int WDL_CursesEditor::onChar(int c)
          } 
         break;
      }
-     if (m_state)
+     if (m_ui_state == UI_STATE_SEARCH || m_ui_state == UI_STATE_SEARCH2)
      {
-       attrset(m_color_message);
-       bkgdset(m_color_message);
+       attrset(COLOR_MESSAGE);
+       bkgdset(COLOR_MESSAGE);
        mvaddstr(LINES-1,29,s_search_string);
        clrtoeol(); 
        attrset(0);
@@ -1561,7 +1777,7 @@ int WDL_CursesEditor::onChar(int c)
           const int xbytesz=WDL_utf8_charpos_to_bytepos(s->Get()+xbyte,1);
           bool hadCom = LineCanAffectOtherLines(s->Get(),xbyte,xbytesz); 
           s->DeleteSub(xbyte,xbytesz);
-          if (!hadCom) hadCom = LineCanAffectOtherLines(s->Get(),-1,-1);
+          if (!hadCom) hadCom = LineCanAffectOtherLines(s->Get(),xbyte,0);
           draw(hadCom ? -1 : m_curs_y);
           saveUndoState();
           setCursor();
@@ -1743,8 +1959,8 @@ int WDL_CursesEditor::onChar(int c)
     if (!SHIFT_KEY_DOWN && !ALT_KEY_DOWN)
     {
       draw_message("");
-      attrset(m_color_message);
-      bkgdset(m_color_message);
+      attrset(COLOR_MESSAGE);
+      bkgdset(COLOR_MESSAGE);
       mvaddstr(LINES-1,0,"Find string (ESC to cancel): ");
       if (m_selecting && m_select_y1==m_select_y2)
       {
@@ -1766,7 +1982,7 @@ int WDL_CursesEditor::onChar(int c)
       clrtoeol();
       attrset(0);
       bkgdset(0);
-      m_state=-3; // find, initial (m_state=4 when we've typed something)
+      m_ui_state=UI_STATE_SEARCH; // find, initial
     }
   break;
   case KEY_DOWN:
@@ -1985,7 +2201,7 @@ int WDL_CursesEditor::onChar(int c)
         tl->DeleteSub(xbyte,xbytesz);
         m_curs_x-=del_sz;
 
-        if (!hadCom) hadCom = LineCanAffectOtherLines(tl->Get(),-1,-1);
+        if (!hadCom) hadCom = LineCanAffectOtherLines(tl->Get(),xbyte,0);
         draw(hadCom?-1:m_curs_y);
         saveUndoState();
         setCursor();
@@ -2133,7 +2349,7 @@ int WDL_CursesEditor::onChar(int c)
 
         const int xbyte = WDL_utf8_charpos_to_bytepos(ss->Get(),m_curs_x);
 
-        bool hadCom = LineCanAffectOtherLines(ss->Get(),-1,-1);
+        bool hadCom = LineCanAffectOtherLines(ss->Get(),xbyte,0);
         if (s_overwrite)
         {
           const int xbytesz_del=WDL_utf8_charpos_to_bytepos(ss->Get()+xbyte,slen);
@@ -2289,3 +2505,128 @@ void WDL_CursesEditor::RunEditor()
     if (onChar(thischar)) break;
   }
 }
+
+void WDL_CursesEditor::draw_top_line()
+{
+  int ypos=0;
+  if (m_top_margin > 1)
+  {
+    int xpos=0;
+    int x;
+    move(ypos++,0);
+    const int cnt= GetTabCount();
+    int tsz=16;
+    // this is duplicated in onMouseMessage
+    if (cnt>0) tsz=COLS/cnt;
+    if (tsz>128)tsz=128;
+    if (tsz<12) tsz=12;
+
+    for (x= 0; x < cnt && xpos < COLS; x ++)
+    {
+      WDL_CursesEditor *ed = GetTab(x);
+      if (ed)
+      {
+        char buf[128 + 8];
+        memset(buf,' ',tsz);
+        const char *p = WDL_get_filepart(ed->GetFileName());
+        const int lp=strlen(p);
+        int skip=0;        
+        if (x<9) 
+        { 
+          if (tsz>16)
+          {
+#ifdef __APPLE__
+            memcpy(buf,"<Cmd+",skip=5);
+#else
+            memcpy(buf,"<Ctrl+",skip=6);
+#endif
+          }
+          buf[skip++]='F'; 
+          buf[skip++] = '1'+x; 
+          buf[skip++] = '>';
+          skip++;
+        }
+        memcpy(buf+skip,p,min(tsz-1-skip,lp));
+        buf[tsz]=0;
+        int l = tsz;
+        if (l > COLS-xpos) l = COLS-xpos;
+        if (ed == this)
+        {
+          attrset(SYNTAX_HIGHLIGHT2|A_BOLD);
+        }
+        else
+        {
+          attrset(A_NORMAL);
+        }
+        addnstr(buf,l);
+        xpos += l;
+      }
+    }
+    if (xpos < COLS) clrtoeol();
+  }
+  attrset(COLOR_TOPLINE|A_BOLD);
+  bkgdset(COLOR_TOPLINE);
+  const char *p=GetFileName();
+  move(ypos,0);
+  if (COLS>4)
+  {
+    const int pl = (int) strlen(p);
+    if (pl > COLS-1 && COLS > 4)
+    {
+      addstr("...");
+      p+=pl - (COLS-1) + 4;
+    }
+    addstr(p);
+  }
+  clrtoeol();
+}
+
+void WDL_CursesEditor::OpenFileInTab(const char *fnp)
+{
+  if (!fnp[0]) return;
+
+  FILE *fp = fopen(fnp,"rb");
+  if (!fp)
+  {
+    WDL_FastString s(fnp);
+    m_newfn.Set(fnp);
+
+    if (COLS > 25)
+    {
+      int allowed = COLS-25;
+      if (s.GetLength()>allowed)
+      {
+        s.DeleteSub(0,s.GetLength() - allowed + 3);
+        s.Insert("...",0);
+      }
+      s.Insert("Create new file '",0);
+      s.Append("' (Y/n)? ");
+    }
+    else
+      s.Set("Create new file (Y/n)? ");
+
+    m_ui_state=UI_STATE_SAVE_AS_NEW;
+    attrset(COLOR_MESSAGE);
+    bkgdset(COLOR_MESSAGE);
+    mvaddstr(LINES-1,0,s.Get());
+    clrtoeol();
+    attrset(0);
+    bkgdset(0);
+  }
+  else
+  {
+    fclose(fp);
+    int x;
+    for (x=0;x<GetTabCount();x++)
+    {
+      WDL_CursesEditor *e = GetTab(x);
+      if (e && !stricmp(e->GetFileName(),fnp))
+      {
+        SwitchTab(x,false);
+        return;
+      }
+    }
+    AddTab(fnp);
+  }
+}
+

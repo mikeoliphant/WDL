@@ -547,8 +547,13 @@ static int DelegateMouseMove(NSView *view, NSEvent *theEvent)
 
 - (void) setEnabled:(BOOL)en
 { 
-  m_enabled=en; 
+  m_enabled=en?1:0; 
 } 
+
+- (void) setEnabledSwellNoFocus
+{
+  m_enabled = -1;
+}
 
 - (void)tableView:(NSTableView *)aTableView willDisplayCell:(id)aCell forTableColumn:(NSTableColumn *)aTableColumn row:(NSInteger)rowIndex 
 {
@@ -606,6 +611,13 @@ static int DelegateMouseMove(NSView *view, NSEvent *theEvent)
 {
   id sender=[notification object];
   int code=CBN_SELCHANGE;
+  if (m_wndproc&&!m_hashaddestroy) m_wndproc((HWND)self,WM_COMMAND,([(NSControl*)sender tag])|(code<<16),(LPARAM)sender);
+}
+
+- (void)comboBoxWillDismiss:(NSNotification *)notification
+{
+  id sender=[notification object];
+  int code=CBN_CLOSEUP;
   if (m_wndproc&&!m_hashaddestroy) m_wndproc((HWND)self,WM_COMMAND,([(NSControl*)sender tag])|(code<<16),(LPARAM)sender);
 }
 
@@ -1404,7 +1416,7 @@ static void MakeGestureInfo(NSEvent* evt, GESTUREINFO* gi, HWND hwnd, int type)
 
 - (BOOL)becomeFirstResponder 
 {
-  if (!m_enabled || ![super becomeFirstResponder]) return NO;
+  if (m_enabled <= 0 || ![super becomeFirstResponder]) return NO;
   SendMessage((HWND)self, WM_MOUSEACTIVATE, 0, 0);
   return YES;
 }
@@ -1421,7 +1433,7 @@ static void MakeGestureInfo(NSEvent* evt, GESTUREINFO* gi, HWND hwnd, int type)
 
 - (BOOL)acceptsFirstResponder 
 {
-  return m_enabled?YES:NO;
+  return m_enabled > 0?YES:NO;
 }
 
 -(void)swellSetExtendedStyle:(LONG)st
