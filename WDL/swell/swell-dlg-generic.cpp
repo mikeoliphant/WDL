@@ -87,14 +87,22 @@ int SWELL_DialogBox(SWELL_DialogResourceIndex *reshead, const char *resid, HWND 
   {
     ReleaseCapture(); // force end of any captures
 
-    WDL_PtrList<HWND__> enwnds;
+    WDL_PtrKeyedArray<int> restwnds;
     extern HWND__ *SWELL_topwindows;
     HWND a = SWELL_topwindows;
     while (a)
     {
-      if (a->m_enabled && a != hwnd) { EnableWindow(a,FALSE); enwnds.Add(a); }
+      if (a!=hwnd) 
+      {
+        int f=0;
+        if (a->m_enabled) { EnableWindow(a,FALSE); f|=1; }
+        if (a->m_israised) { SWELL_SetWindowLevel(a,0); f|=2; }
+        if (f) restwnds.AddUnsorted((INT_PTR)a,f);
+      }
       a = a->m_next;
     }
+    restwnds.Resort();
+    SWELL_SetWindowLevel(hwnd,1);
 
     modalDlgRet r = { hwnd,false, -1 };
     s_modalDialogs.Add(&r);
@@ -111,7 +119,12 @@ int SWELL_DialogBox(SWELL_DialogResourceIndex *reshead, const char *resid, HWND 
     a = SWELL_topwindows;
     while (a)
     {
-      if (!a->m_enabled && a != hwnd && enwnds.Find(a)>=0) EnableWindow(a,TRUE);
+      if (a != hwnd) 
+      {
+        int f = restwnds.Get((INT_PTR)a);
+        if (!a->m_enabled && (f&1)) EnableWindow(a,TRUE);
+        if (!a->m_israised && (f&2)) SWELL_SetWindowLevel(a,1);
+      }
       a = a->m_next;
     }
   }
@@ -132,7 +145,7 @@ HWND SWELL_CreateDialog(SWELL_DialogResourceIndex *reshead, const char *resid, H
   SWELL_DialogResourceIndex *p=resById(reshead,resid);
   if (!p&&resid) return 0;
   
-  RECT r={0,0,p?p->width : 300, p?p->height : 200};
+  RECT r={0,0,SWELL_UI_SCALE(p ? p->width : 300), SWELL_UI_SCALE(p ? p->height : 200) };
   HWND owner=NULL;
 
   if (!forceNonChild && parent && (!p || (p->windowTypeFlags&SWELL_DLG_WS_CHILD)))
@@ -162,12 +175,20 @@ HWND SWELL_CreateDialog(SWELL_DialogResourceIndex *reshead, const char *resid, H
     h->m_dlgproc = dlgproc;
     h->m_wndproc = SwellDialogDefaultWindowProc;
 
-    //HWND hFoc=m_children;
-//    while (hFoc && !hFoc->m_wantfocus) hFoc=hFoc->m_next;
- //   if (!hFoc) hFoc=this;
-  //  if (dlgproc(this,WM_INITDIALOG,(WPARAM)hFoc,0)&&hFoc) SetFocus(hFoc);
+    HWND hFoc=h->m_children;
+    while (hFoc)
+    {
+      if (hFoc->m_wantfocus && hFoc->m_visible && hFoc->m_enabled) break;
+      hFoc=hFoc->m_next;
+    }
 
-    h->m_dlgproc(h,WM_INITDIALOG,0,param);
+    if (h->m_dlgproc(h,WM_INITDIALOG,(WPARAM)hFoc,param))
+    {
+      if (hFoc && hFoc->m_wantfocus && hFoc->m_visible && hFoc->m_enabled)
+      {
+        SetFocus(hFoc);
+      }
+    }
   } 
   else
   {

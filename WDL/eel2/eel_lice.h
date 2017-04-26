@@ -583,12 +583,13 @@ static EEL_F * NSEEL_CGEN_CALL _gfx_measurechar(void *opaque, EEL_F *str, EEL_F 
   return str;
 }
 
-static EEL_F * NSEEL_CGEN_CALL _gfx_drawstr(void *opaque, EEL_F *n)
+static EEL_F NSEEL_CGEN_CALL _gfx_drawstr(void *opaque, INT_PTR nparms, EEL_F **parms)
 {
   eel_lice_state *ctx=EEL_LICE_GET_CONTEXT(opaque);
-  if (ctx) ctx->gfx_drawstr(opaque,&n,1,0);
-  return n;
+  if (ctx) ctx->gfx_drawstr(opaque,parms,(int)nparms,0);
+  return parms[0][0];
 }
+
 static EEL_F NSEEL_CGEN_CALL _gfx_printf(void *opaque, INT_PTR nparms, EEL_F **parms)
 {
   eel_lice_state *ctx=EEL_LICE_GET_CONTEXT(opaque);
@@ -1150,7 +1151,7 @@ EEL_F eel_lice_state::gfx_setfont(void *opaque, int np, EEL_F **parms)
             TEXTMETRIC tm;
             tm.tmHeight = sz;
 
-            if (!m_framebuffer && LICE_FUNCTION_VALID(__LICE_CreateBitmap)) m_framebuffer=__LICE_CreateBitmap(0,64,64);
+            if (!m_framebuffer && LICE_FUNCTION_VALID(__LICE_CreateBitmap)) m_framebuffer=__LICE_CreateBitmap(1,64,64);
 
             if (m_framebuffer && LICE_FUNCTION_VALID(LICE__GetDC))
             {
@@ -1375,15 +1376,17 @@ void eel_lice_state::gfx_getpixel(EEL_F *r, EEL_F *g, EEL_F *b)
 }
 
 
-static int __drawTextWithFont(LICE_IBitmap *dest, int xpos, int ypos, LICE_IFont *font, const char *buf, int buflen, int fg, int mode, float alpha, EEL_F *wantYoutput, EEL_F **measureOnly)
+static int __drawTextWithFont(LICE_IBitmap *dest, const RECT *rect, LICE_IFont *font, const char *buf, int buflen, 
+  int fg, int mode, float alpha, int flags, EEL_F *wantYoutput, EEL_F **measureOnly)
 {
   if (font && LICE_FUNCTION_VALID(LICE__DrawText))
   {
+    RECT tr=*rect;
     LICE__SetTextColor(font,fg);
     LICE__SetTextCombineMode(font,mode,alpha);
 
     int maxx=0;
-    RECT r={0,0,xpos,0};
+    RECT r={0,0,tr.left,0};
     while (buflen>0)
     {
       int thislen = 0;
@@ -1392,19 +1395,15 @@ static int __drawTextWithFont(LICE_IBitmap *dest, int xpos, int ypos, LICE_IFont
       int lineh = LICE__DrawText(font,dest,buf,thislen?thislen:1,&r,DT_SINGLELINE|DT_NOPREFIX|DT_CALCRECT);
       if (!measureOnly)
       {
-        r.left = xpos;
-        r.top = ypos;
-        r.right += xpos;
-        r.bottom += ypos;
-        lineh = LICE__DrawText(font,dest,buf,thislen?thislen:1,&r,DT_SINGLELINE|DT_NOPREFIX|DT_LEFT|DT_TOP);
-
-        if (wantYoutput) *wantYoutput = ypos;
+        r.right += tr.left;
+        lineh = LICE__DrawText(font,dest,buf,thislen?thislen:1,&tr,DT_SINGLELINE|DT_NOPREFIX|flags);
+        if (wantYoutput) *wantYoutput = tr.top;
       }
       else
       {
         if (r.right > maxx) maxx=r.right;
       }
-      ypos += lineh;
+      tr.top += lineh;
 
       buflen -= thislen+1;
       buf += thislen+1;      
@@ -1412,15 +1411,47 @@ static int __drawTextWithFont(LICE_IBitmap *dest, int xpos, int ypos, LICE_IFont
     if (measureOnly) 
     {
       measureOnly[0][0] = maxx;
-      measureOnly[1][0] = ypos;
+      measureOnly[1][0] = tr.top;
     }
     return r.right;
   }
   else
   { 
+    int xpos=rect->left, ypos=rect->top;
     int x;
     const int sxpos = xpos;
     int maxx=0,maxy=0;
+
+    LICE_SubBitmap sbm(
+#ifdef DYNAMIC_LICE
+        (LICE_IBitmap_disabledAPI*)
+#endif
+        dest,rect->left,rect->top,rect->right-rect->left,rect->bottom-rect->top);
+
+    if (!measureOnly)
+    {
+      if (!(flags & DT_NOCLIP))
+      {
+        if (rect->right <= rect->left || rect->bottom <= rect->top) return 0; // invalid clip rect hm
+
+        xpos = ypos = 0;
+        dest = &sbm;
+      }
+      if (flags & (DT_RIGHT|DT_BOTTOM|DT_CENTER|DT_VCENTER))
+      {
+        EEL_F w=0.0,h=0.0;
+        EEL_F *mo[2] = { &w,&h};
+        __drawTextWithFont(dest,rect,NULL,buf,buflen,0,0,0.0f,0,NULL,mo);
+
+        if (flags & DT_RIGHT) xpos += (rect->right-rect->left) - (int)floor(w);
+        else if (flags & DT_CENTER) xpos += (rect->right-rect->left)/2 - (int)floor(w*.5);
+
+        if (flags & DT_BOTTOM) ypos += (rect->bottom-rect->top) - (int)floor(h);
+        else if (flags & DT_VCENTER) ypos += (rect->bottom-rect->top)/2 - (int)floor(h*.5);
+      }
+    }
+
+
     if (LICE_FUNCTION_VALID(LICE_DrawChar)) for(x=0;x<buflen;x++)
     {
       switch (buf[x])
@@ -1486,15 +1517,20 @@ static HMENU PopulateMenuFromStr(const char** str, int* startid)
       if (*q == '<') done=true;
       ++q;
     }
-    if (!hm) hm=CreatePopupMenu();
     if (subm) flags |= MF_POPUP;
     if (*q) InsertMenu(hm, pos++, flags, (subm ? (INT_PTR)subm : (INT_PTR)id++), q);
-    else InsertMenu(hm, pos++, MF_BYPOSITION|MF_SEPARATOR, 0, NULL);
+    else if (!done) InsertMenu(hm, pos++, MF_BYPOSITION|MF_SEPARATOR, 0, NULL);
     if (done) break;
   }
 
   *str=p;
   *startid=id;
+
+  if (!pos) 
+  { 
+    DestroyMenu(hm);
+    return NULL;
+  }
   return hm;
 }
 
@@ -1595,11 +1631,25 @@ void eel_lice_state::gfx_drawstr(void *opaque, EEL_F **parms, int nparms, int fo
     if (formatmode>=2)
     {
       if (nfmtparms==2)
-        __drawTextWithFont(dest,0,0,GetActiveFont(),s,s_len,getCurColor(),getCurMode(),(float) *m_gfx_a,NULL, fmtparms);
+      {
+        RECT r={0,0,0,0};
+        __drawTextWithFont(dest,&r,GetActiveFont(),s,s_len,
+          getCurColor(),getCurMode(),(float)*m_gfx_a,0,NULL,fmtparms);
+      }
     }
     else
-    {
-      *m_gfx_x = __drawTextWithFont(dest,(int)floor(*m_gfx_x),(int)floor(*m_gfx_y),GetActiveFont(),s,s_len,getCurColor(),getCurMode(),(float) *m_gfx_a,m_gfx_y,NULL);
+    {    
+      RECT r={(int)floor(*m_gfx_x),(int)floor(*m_gfx_y),0,0};
+      int flags=DT_NOCLIP;
+      if (formatmode == 0 && nparms >= 4)
+      {
+        flags=(int)*parms[1];
+        flags &= (DT_CENTER|DT_RIGHT|DT_VCENTER|DT_BOTTOM|DT_NOCLIP);
+        r.right=(int)*parms[2];
+        r.bottom=(int)*parms[3];
+      }
+      *m_gfx_x=__drawTextWithFont(dest,&r,GetActiveFont(),s,s_len,
+        getCurColor(),getCurMode(),(float)*m_gfx_a,flags,m_gfx_y,NULL);
     }
 
     SetImageDirty(dest);
@@ -1617,9 +1667,10 @@ void eel_lice_state::gfx_drawchar(EEL_F ch)
   char buf[32];
   const int buflen = WDL_MakeUTFChar(buf, a, sizeof(buf));
 
-  *m_gfx_x = __drawTextWithFont(dest,(int)floor(*m_gfx_x),(int)floor(*m_gfx_y),
+  RECT r={(int)floor(*m_gfx_x),(int)floor(*m_gfx_y),0,0};
+  *m_gfx_x = __drawTextWithFont(dest,&r,
                          GetActiveFont(),buf,buflen,
-                         getCurColor(),getCurMode(),(float)*m_gfx_a, NULL,NULL);
+                         getCurColor(),getCurMode(),(float)*m_gfx_a,DT_NOCLIP,NULL,NULL);
 
   SetImageDirty(dest);
 }
@@ -1636,9 +1687,10 @@ void eel_lice_state::gfx_drawnumber(EEL_F n, EEL_F ndigits)
   else if (a > 16) a=16;
   snprintf(buf,sizeof(buf),"%.*f",a,n);
 
-  *m_gfx_x = __drawTextWithFont(dest,(int)floor(*m_gfx_x),(int)floor(*m_gfx_y),
+  RECT r={(int)floor(*m_gfx_x),(int)floor(*m_gfx_y),0,0};
+  *m_gfx_x = __drawTextWithFont(dest,&r,
                            GetActiveFont(),buf,(int)strlen(buf),
-                           getCurColor(),getCurMode(),(float)*m_gfx_a, NULL,NULL);
+                           getCurColor(),getCurMode(),(float)*m_gfx_a,DT_NOCLIP,NULL,NULL);
 
   SetImageDirty(dest);
 }
@@ -1666,6 +1718,22 @@ int eel_lice_state::setup_frame(HWND hwnd, RECT r)
     }
 #else
     *m_gfx_ext_retina = 1.0;
+    #ifdef _WIN32
+       static UINT (WINAPI *__GetDpiForWindow)(HWND);
+       if (!__GetDpiForWindow)
+       {
+         HINSTANCE h = LoadLibrary("user32.dll");
+         if (h) *(void **)&__GetDpiForWindow = GetProcAddress(h,"GetDpiForWindow");
+         if (!__GetDpiForWindow)
+           *(void **)&__GetDpiForWindow = (void*)(INT_PTR)1;
+       }
+       if (hwnd && (UINT_PTR)__GetDpiForWindow > (UINT_PTR)1)
+       {
+         int dpi = __GetDpiForWindow(hwnd);
+         if (dpi != 96)
+           *m_gfx_ext_retina = dpi / 96.0;
+       }
+    #endif
 #endif
   }
   int dr=0;
@@ -1747,7 +1815,7 @@ void eel_lice_register()
   NSEEL_addfunc_varparm("gfx_setcursor",1, NSEEL_PProc_THIS, &_gfx_setcursor);
   NSEEL_addfunc_retptr("gfx_drawnumber",2,NSEEL_PProc_THIS,&_gfx_drawnumber);
   NSEEL_addfunc_retptr("gfx_drawchar",1,NSEEL_PProc_THIS,&_gfx_drawchar);
-  NSEEL_addfunc_retptr("gfx_drawstr",1,NSEEL_PProc_THIS,&_gfx_drawstr);
+  NSEEL_addfunc_varparm("gfx_drawstr",1,NSEEL_PProc_THIS,&_gfx_drawstr);
   NSEEL_addfunc_retptr("gfx_measurestr",3,NSEEL_PProc_THIS,&_gfx_measurestr);
   NSEEL_addfunc_retptr("gfx_measurechar",3,NSEEL_PProc_THIS,&_gfx_measurechar);
   NSEEL_addfunc_varparm("gfx_printf",1,NSEEL_PProc_THIS,&_gfx_printf);
@@ -2326,7 +2394,7 @@ LRESULT WINAPI eel_lice_wndproc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
         if (a & mask)
         {
           int a_no_alt = (a&mask);
-          const int lowera = a_no_alt >= 1 && a_no_alt < 27 ? (a_no_alt+'a'-1) : tolower(a_no_alt);
+          const int lowera = a_no_alt >= 1 && a_no_alt < 27 ? (a_no_alt+'a'-1) : a_no_alt >= 'A' && a_no_alt <= 'Z' ? a_no_alt+'a'-'A' : a_no_alt;
 
           int *st = ctx->hwnd_standalone_kb_state;
 
@@ -2674,7 +2742,13 @@ static const char *eel_lice_function_reference =
   "gfx_getpixel\tr,g,b\tGets the value of the pixel at gfx_x,gfx_y into r,g,b. \0"
   "gfx_drawnumber\tn,ndigits\tDraws the number n with ndigits of precision to gfx_x, gfx_y, and updates gfx_x to the right side of the drawing. The text height is gfx_texth.\0"
   "gfx_drawchar\tchar\tDraws the character (can be a numeric ASCII code as well), to gfx_x, gfx_y, and moves gfx_x over by the size of the character.\0"
-  "gfx_drawstr\t\"str\"\tDraws a string at gfx_x, gfx_y, and updates gfx_x/gfx_y so that subsequent draws will occur in a similar place.\0"
+  "gfx_drawstr\t\"str\"[,flags,right,bottom]\tDraws a string at gfx_x, gfx_y, and updates gfx_x/gfx_y so that subsequent draws will occur in a similar place.\n\n"
+    "If flags, right ,bottom passed in:\n"
+    "\4flags&1: center horizontally\n"
+    "\4flags&2: right justify\n"
+    "\4flags&4: center vertically\n"
+    "\4flags&8: bottom justify\n"
+    "\4flags&256: ignore right/bottom, otherwise text is clipped to (gfx_x, gfx_y, right, bottom)\0"
   "gfx_measurestr\t\"str\",&w,&h\tMeasures the drawing dimensions of a string with the current font (as set by gfx_setfont). \0"
   "gfx_measurechar\tcharacter,&w,&h\tMeasures the drawing dimensions of a character with the current font (as set by gfx_setfont). \0"
   "gfx_setfont\tidx[,\"fontface\", sz, flags]\tCan select a font and optionally configure it. idx=0 for default bitmapped font, no configuration is possible for this font. idx=1..16 for a configurable font, specify fontface such as \"Arial\", sz of 8-100, and optionally specify flags, which is a multibyte character, which can include 'i' for italics, 'u' for underline, or 'b' for bold. These flags may or may not be supported depending on the font and OS. After calling gfx_setfont(), gfx_texth may be updated to reflect the new average line height.\0"

@@ -49,14 +49,18 @@ void BrowseFile_SetTemplate(const char *dlgid, DLGPROC dlgProc, struct SWELL_Dia
 class BrowseFile_State
 {
 public:
+  static char s_sortrev;
   enum modeEnum { SAVE=0,OPEN, OPENMULTI, OPENDIR };
 
   BrowseFile_State(const char *_cap, const char *_idir, const char *_ifile, const char *_el, modeEnum _mode, char *_fnout, int _fnout_sz) :
-    caption(_cap), initialdir(_idir), initialfile(_ifile), extlist(_el), mode(_mode), fnout(_fnout), fnout_sz(_fnout_sz), viewlist(true)
+    caption(_cap), initialdir(_idir), initialfile(_ifile), extlist(_el), mode(_mode), 
+    sortcol(0), sortrev(0),
+    fnout(_fnout), fnout_sz(_fnout_sz), viewlist(16384)
   {
   }
   ~BrowseFile_State()
   {
+    viewlist_clear();
   }
 
   const char *caption;
@@ -65,20 +69,61 @@ public:
   const char *extlist;
 
   modeEnum mode;
+  char sortcol, sortrev;
+
   char *fnout; // if NULL this will be malloced by the window
   int fnout_sz;
 
   struct rec {
     WDL_INT64 size;
     time_t date;
+    char *name;
+    int type; // 1 = directory, 2 = file
   };
 
-  WDL_StringKeyedArray2<rec> viewlist; // first byte of string will define type -- 1 = directory, 2= file
+  void viewlist_clear()
+  {
+    rec *l = viewlist.Get();
+    const int n = viewlist.GetSize();
+    for (int x = 0; x < n; x ++) free(l[x].name);
+    viewlist.Resize(0);
+  }
+  WDL_TypedBuf<rec> viewlist;
+  void viewlist_sort()
+  {
+    s_sortrev = sortrev;
+    qsort(viewlist.Get(), viewlist.GetSize(),sizeof(rec), 
+      sortcol == 1 ? sortFunc_sz :
+      sortcol == 2 ? sortFunc_date : 
+      sortFunc_fn);
+  }
+  static int sortFunc_fn(const void *_a, const void *_b)
+  {
+    const rec *a = (const rec *)_a, *b = (const rec *)_b;
+    int d = a->type - b->type;
+    if (d) return d;
+    d = stricmp(a->name,b->name);
+    return s_sortrev ? -d : d;
+  }
+  static int sortFunc_date(const void *_a, const void *_b)
+  {
+    const rec *a = (const rec *)_a, *b = (const rec *)_b;
+    if (a->date != b->date) return s_sortrev ? (a->date>b->date?-1:1) : (a->date>b->date?1:-1);
+    return stricmp(a->name,b->name);
+  }
+  static int sortFunc_sz(const void *_a, const void *_b)
+  {
+    const rec *a = (const rec *)_a, *b = (const rec *)_b;
+    int d = a->type - b->type;
+    if (d) return s_sortrev ? -d : d;
+    if (a->size != b->size) return s_sortrev ? (a->size>b->size?-1:1) : (a->size>b->size?1:-1);
+    return stricmp(a->name,b->name);
+  }
 
 
   void scan_path(const char *path, const char *filterlist, bool dir_only)
   {
-    viewlist.DeleteAll();
+    viewlist_clear();
     DIR *dir = opendir(path);
     if (!dir) return;
     char tmp[2048];
@@ -134,20 +179,20 @@ public:
           if (!*f) continue; // did not match
         }
         snprintf(tmp,sizeof(tmp),"%s/%s",path,ent->d_name);
-        struct stat st={0,};
-        stat(tmp,&st);
+        struct stat64 st={0,};
+        stat64(tmp,&st);
       
-        rec r = { st.st_size, st.st_mtime } ;
-        tmp[0] = is_dir?1:2;
-        lstrcpyn_safe(tmp+1,ent->d_name,sizeof(tmp)-1);
-        viewlist.AddUnsorted(tmp,r);
+        rec r = { st.st_size, st.st_mtime, strdup(ent->d_name), is_dir?1:2 } ;
+        viewlist.Add(&r,1);
       }
     }
-    viewlist.Resort();
+    // sort viewlist
 
     closedir(dir);
   }
 };
+
+char BrowseFile_State::s_sortrev;
 
 static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
@@ -160,34 +205,61 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
       {
         SetWindowLong(hwnd,GWL_WNDPROC,(LPARAM)SwellDialogDefaultWindowProc);
         SetWindowLong(hwnd,DWL_DLGPROC,(LPARAM)swellFileSelectProc);
+
+        SetWindowLong(hwnd,GWL_STYLE, GetWindowLong(hwnd,GWL_STYLE)|WS_THICKFRAME);
+
         SetWindowLongPtr(hwnd,GWLP_USERDATA,lParam);
         BrowseFile_State *parms = (BrowseFile_State *)lParam;
         if (parms->caption) SetWindowText(hwnd,parms->caption);
 
         SWELL_MakeSetCurParms(1,1,0,0,hwnd,false,false);
 
+        HWND edit = SWELL_MakeEditField(0x100, 0,0,0,0,  0);
         SWELL_MakeButton(0,
               parms->mode == BrowseFile_State::OPENDIR ? "Choose directory" :
               parms->mode == BrowseFile_State::SAVE ? "Save" : "Open",
               IDOK,0,0,0,0, 0);
 
         SWELL_MakeButton(0, "Cancel", IDCANCEL,0,0,0,0, 0);
-        HWND edit = SWELL_MakeEditField(0x100, 0,0,0,0,  0);
-        HWND dir = SWELL_MakeCombo(0x103, 0,0,0,0, CBS_DROPDOWNLIST);
+        HWND dir = SWELL_MakeCombo(0x103, 0,0,0,0, 0);
+
+        const char *ent = parms->mode == BrowseFile_State::OPENDIR ? "dir_browser" : "file_browser";
+        char tmp[128];
+        GetPrivateProfileString(".swell",ent,"", tmp,sizeof(tmp),"");
+        int x=0,y=0,w=0,h=0, c1=0,c2=0,c3=0;
+        int flag = SWP_NOMOVE | SWP_NOACTIVATE | SWP_NOZORDER;
+        if (tmp[0] && 
+            sscanf(tmp,"%d %d %d %d %d %d %d",&x,&y,&w,&h,&c1,&c2,&c3) >= 4) 
+          flag &= ~SWP_NOMOVE;
+        if (w < 100) w=SWELL_UI_SCALE(600);
+        if (h < 100) h=SWELL_UI_SCALE(400);
+
+        if (c1 + c2 + c3 < w/2)
+        {
+          c1=SWELL_UI_SCALE(280);
+          c2=SWELL_UI_SCALE(120);
+          c3=SWELL_UI_SCALE(140);
+        }
 
         HWND list = SWELL_MakeControl("",0x104,"SysListView32",LVS_REPORT|LVS_SHOWSELALWAYS|
               (parms->mode == BrowseFile_State::OPENMULTI ? 0 : LVS_SINGLESEL)|
               LVS_OWNERDATA|WS_BORDER|WS_TABSTOP,0,0,0,0,0);
         if (list)
         {
-          LVCOLUMN c={LVCF_TEXT|LVCF_WIDTH, 0, 280, (char*)"Filename" };
+          LVCOLUMN c={LVCF_TEXT|LVCF_WIDTH, 0, c1, (char*)"Filename" };
           ListView_InsertColumn(list,0,&c);
-          c.cx = 120;
+          c.cx = c2;
           c.pszText = (char*) "Size";
           ListView_InsertColumn(list,1,&c);
-          c.cx = 140;
+          c.cx = c3;
           c.pszText = (char*) "Date";
           ListView_InsertColumn(list,2,&c);
+          HWND hdr = ListView_GetHeader(list);
+          HDITEM hi;
+          memset(&hi,0,sizeof(hi));
+          hi.mask = HDI_FORMAT;
+          hi.fmt = parms->sortrev ? HDF_SORTDOWN : HDF_SORTUP;
+          Header_SetItem(hdr,parms->sortcol,&hi);
         }
         HWND extlist = (parms->extlist && *parms->extlist) ? SWELL_MakeCombo(0x105, 0,0,0,0, CBS_DROPDOWNLIST) : NULL;
         if (extlist)
@@ -237,8 +309,28 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
           SendMessage(hwnd, WM_USER+100, 0x103, (LPARAM)buf);
         }
 
-        SetWindowPos(hwnd,NULL,0,0,600, 400, SWP_NOACTIVATE|SWP_NOZORDER|SWP_NOMOVE);
+        SetWindowPos(hwnd,NULL,x,y, w,h, flag);
         SendMessage(hwnd,WM_USER+100,1,0); // refresh list
+        SendMessage(edit,EM_SETSEL,0,(LPARAM)-1);
+        SetFocus(edit);
+      }
+    break;
+    case WM_DESTROY:
+      {
+        BrowseFile_State *parms = (BrowseFile_State *)GetWindowLongPtr(hwnd,GWLP_USERDATA);
+        if (parms)
+        {
+          RECT r;
+          GetWindowRect(hwnd,&r);
+          HWND list = GetDlgItem(hwnd,0x104);
+          const int c1 = ListView_GetColumnWidth(list,0);
+          const int c2 = ListView_GetColumnWidth(list,1);
+          const int c3 = ListView_GetColumnWidth(list,2);
+          char tmp[128];
+          snprintf(tmp,sizeof(tmp),"%d %d %d %d %d %d %d",r.left,r.top,r.right-r.left,r.bottom-r.top,c1,c2,c3);
+          const char *ent = parms->mode == BrowseFile_State::OPENDIR ? "dir_browser" : "file_browser";
+          WritePrivateProfileString(".swell",ent, tmp, "");
+        }
       }
     break;
     case WM_USER+100:
@@ -272,14 +364,14 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
             int a = (int) SendDlgItemMessage(hwnd,0x105,CB_GETCURSEL,0,0);
             if (a>=0) filt = (const char *)SendDlgItemMessage(hwnd,0x105,CB_GETITEMDATA,a,0);
 
-            a = (int) SendDlgItemMessage(hwnd,0x103,CB_GETCURSEL,0,0);
-            if (a>=0) SendDlgItemMessage(hwnd,0x103,CB_GETLBTEXT,a,(LPARAM)buf);
+            GetDlgItemText(hwnd,0x103,buf,sizeof(buf));
 
             if (buf[0]) parms->scan_path(buf, filt, parms->mode == BrowseFile_State::OPENDIR);
-            else parms->viewlist.DeleteAll();
+            else parms->viewlist_clear();
             HWND list = GetDlgItem(hwnd,0x104);
             ListView_SetItemCount(list, 0); // clear selection
             ListView_SetItemCount(list, parms->viewlist.GetSize());
+            parms->viewlist_sort();
             ListView_RedrawItems(list,0, parms->viewlist.GetSize());
           }
         }
@@ -299,11 +391,12 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
         // reposition controls
         RECT r;
         GetClientRect(hwnd,&r);
-        const int buth = 24, cancelbutw = 50, okbutw = parms->mode == BrowseFile_State::OPENDIR ? 120 : 50;
-        const int xborder = 4, yborder=8;
-        const int fnh = 20, fnlblw = parms->mode == BrowseFile_State::OPENDIR ? 70 : 50;
+        const int buth = SWELL_UI_SCALE(24), cancelbutw = SWELL_UI_SCALE(50), okbutw = SWELL_UI_SCALE(parms->mode == BrowseFile_State::OPENDIR ? 120 : 50);
+        const int xborder = SWELL_UI_SCALE(4), yborder=SWELL_UI_SCALE(8);
+        const int fnh = SWELL_UI_SCALE(20), fnlblw = SWELL_UI_SCALE(parms->mode == BrowseFile_State::OPENDIR ? 70 : 50);
+        const int ypad = SWELL_UI_SCALE(4);
 
-        int ypos = r.bottom - 4 - buth;
+        int ypos = r.bottom - ypad - buth;
         int xpos = r.right;
         SetWindowPos(GetDlgItem(hwnd,IDCANCEL), NULL, xpos -= cancelbutw + xborder, ypos, cancelbutw,buth, SWP_NOZORDER|SWP_NOACTIVATE);
         SetWindowPos(GetDlgItem(hwnd,IDOK), NULL, xpos -= okbutw + xborder, ypos, okbutw,buth, SWP_NOZORDER|SWP_NOACTIVATE);
@@ -313,7 +406,7 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
         {
           RECT sr;
           GetClientRect(emb,&sr);
-          if (ypos > r.bottom-4-sr.bottom) ypos = r.bottom-4-sr.bottom;
+          if (ypos > r.bottom-ypad-sr.bottom) ypos = r.bottom-ypad-sr.bottom;
           SetWindowPos(emb,NULL, xborder,ypos, xpos - xborder*2, sr.bottom, SWP_NOZORDER|SWP_NOACTIVATE);
           ShowWindow(emb,SW_SHOWNA);
         }
@@ -326,9 +419,9 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
 
         SetWindowPos(GetDlgItem(hwnd,0x100), NULL, xborder*2 + fnlblw, ypos -= fnh + yborder, r.right-fnlblw-xborder*3, fnh, SWP_NOZORDER|SWP_NOACTIVATE);
         SetWindowPos(GetDlgItem(hwnd,0x101), NULL, xborder, ypos, fnlblw, fnh, SWP_NOZORDER|SWP_NOACTIVATE);
-        SetWindowPos(GetDlgItem(hwnd,0x103), NULL, xborder, 0, r.right-xborder*2, fnh, SWP_NOZORDER|SWP_NOACTIVATE);
+        SetWindowPos(GetDlgItem(hwnd,0x103), NULL, xborder, yborder/2, r.right-xborder*2, g_swell_ctheme.combo_height, SWP_NOZORDER|SWP_NOACTIVATE);
   
-        SetWindowPos(GetDlgItem(hwnd,0x104), NULL, xborder, fnh+yborder, r.right-xborder*2, ypos - (fnh+yborder) - yborder, SWP_NOZORDER|SWP_NOACTIVATE);
+        SetWindowPos(GetDlgItem(hwnd,0x104), NULL, xborder, g_swell_ctheme.combo_height+yborder, r.right-xborder*2, ypos - (g_swell_ctheme.combo_height+yborder) - yborder, SWP_NOZORDER|SWP_NOACTIVATE);
       }
     break;
     case WM_COMMAND:
@@ -350,19 +443,31 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
         case IDOK: 
           {
             char buf[maxPathLen], msg[2048];
-            buf[0]=0;
-
-            int a = (int) SendDlgItemMessage(hwnd,0x103,CB_GETCURSEL,0,0);
-            if (a>=0)
+            GetDlgItemText(hwnd,0x103,buf,sizeof(buf));
+            if (GetFocus() == GetDlgItem(hwnd,0x103))
             {
-              SendDlgItemMessage(hwnd,0x103,CB_GETLBTEXT,a,(LPARAM)buf);
-              size_t buflen = strlen(buf);
-              if (!buflen) strcpy(buf,"/");
-              else
+              DIR *dir = opendir(buf);
+              if (!dir)
               {
-                if (buflen > sizeof(buf)-2) buflen = sizeof(buf)-2;
-                if (buf[buflen-1]!='/') { buf[buflen++] = '/'; buf[buflen]=0; }
+                snprintf(msg,sizeof(msg),"Path does not exist:\r\n\r\n%s",buf);
+                MessageBox(hwnd,msg,"Path not found",MB_OK);
+                return 0;
               }
+              closedir(dir);
+
+              SendMessage(hwnd,WM_USER+100,1,0); // refresh list
+              HWND e = GetDlgItem(hwnd,0x100);
+              SendMessage(e,EM_SETSEL,0,(LPARAM)-1);
+              SetFocus(e);
+              return 0;
+            }
+
+            size_t buflen = strlen(buf);
+            if (!buflen) strcpy(buf,"/");
+            else
+            {
+              if (buflen > sizeof(buf)-2) buflen = sizeof(buf)-2;
+              if (buf[buflen-1]!='/') { buf[buflen++] = '/'; buf[buflen]=0; }
             }
             GetDlgItemText(hwnd,0x100,msg,sizeof(msg));
 
@@ -376,12 +481,11 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
               int a = ListView_GetNextItem(list,-1,LVNI_SELECTED);
               while (a != -1 && fs.GetSize() < 4096*4096 && cnt--)
               {
-                const char *fn = NULL;
-                struct BrowseFile_State::rec *rec = parms->viewlist.EnumeratePtr(a,&fn);
+                if (a < 0 || a >= parms->viewlist.GetSize()) break;
+                const struct BrowseFile_State::rec *rec = parms->viewlist.Get()+a;
                 if (!rec) break;
 
-                if (*fn) fn++; // skip type ident
-                fs.Add(fn,strlen(fn)+1);
+                fs.Add(rec->name,strlen(rec->name)+1);
                 a = ListView_GetNextItem(list,a,LVNI_SELECTED);
               }
               fs.Add("",1);
@@ -396,7 +500,11 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
             {
               if (msg[0] == '.' && (msg[1] == '.' || msg[1] == 0))
               {
-                if (msg[1] == '.') SendDlgItemMessage(hwnd,0x103,CB_SETCURSEL,a+1,0);
+                if (msg[1] == '.') 
+                {
+                  int a = (int) SendDlgItemMessage(hwnd,0x103,CB_GETCURSEL,0,0);
+                  if (a>=0) SendDlgItemMessage(hwnd,0x103,CB_SETCURSEL,a+1,0);
+                }
                 SetDlgItemText(hwnd,0x100,"");
                 SendMessage(hwnd,WM_USER+100,1,0); // refresh list
                 return 0;
@@ -439,7 +547,7 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
                  if (!buf[0]) return 0;
                  else  
                  {
-                   struct stat st={0,};
+                   struct stat64 st={0,};
                    DIR *dir = opendir(buf);
                    if (dir)
                    {
@@ -449,7 +557,7 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
                      SendMessage(hwnd,WM_USER+100,1,0); // refresh list
                      return 0;
                    }
-                   if (!stat(buf,&st))
+                   if (!stat64(buf,&st))
                    {
                      snprintf(msg,sizeof(msg),"File exists:\r\n\r\n%s\r\n\r\nOverwrite?",buf);
                      if (MessageBox(hwnd,msg,"Overwrite file?",MB_OKCANCEL)==IDCANCEL) return 0;
@@ -460,7 +568,7 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
                  if (!buf[0]) return 0;
                  else  
                  {
-                   struct stat st={0,};
+                   struct stat64 st={0,};
                    DIR *dir = opendir(buf);
                    if (dir)
                    {
@@ -470,7 +578,7 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
                      SendMessage(hwnd,WM_USER+100,1,0); // refresh list
                      return 0;
                    }
-                   if (stat(buf,&st))
+                   if (stat64(buf,&st))
                    {
                      snprintf(msg,sizeof(msg),"File does not exist:\r\n\r\n%s",buf);
                      MessageBox(hwnd,msg,"File not found",MB_OK);
@@ -504,19 +612,18 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
           const int idx=lpdi->item.iItem;
           if (l->idFrom == 0x104 && parms && idx >=0 && idx < parms->viewlist.GetSize())
           {
-            const char *fn = NULL;
-            struct BrowseFile_State::rec *rec = parms->viewlist.EnumeratePtr(idx,&fn);
-            if (rec && fn)
+            struct BrowseFile_State::rec *rec = parms->viewlist.Get()+idx;
+            if (rec && rec->name)
             {
               if (lpdi->item.mask&LVIF_TEXT) 
               {
                 switch (lpdi->item.iSubItem)
                 {
                   case 0:
-                    if (fn[0]) lstrcpyn_safe(lpdi->item.pszText,fn+1,lpdi->item.cchTextMax);
+                    lstrcpyn_safe(lpdi->item.pszText,rec->name,lpdi->item.cchTextMax);
                   break;
                   case 1:
-                    if (fn[0] == 1) 
+                    if (rec->type == 1)
                     {
                       lstrcpyn_safe(lpdi->item.pszText,"<DIR>",lpdi->item.cchTextMax);
                     }
@@ -568,11 +675,10 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
             }
             else
             {
-              const char *fn = NULL;
-              struct BrowseFile_State::rec *rec = parms ? parms->viewlist.EnumeratePtr(selidx,&fn) : NULL;
+              struct BrowseFile_State::rec *rec = parms && selidx < parms->viewlist.GetSize() ? parms->viewlist.Get()+selidx : NULL;
               if (rec)
               {
-                if (fn && fn[0]) SetDlgItemText(hwnd,0x100,fn+1);
+                SetDlgItemText(hwnd,0x100,rec->name);
               }
             }
           }
@@ -581,7 +687,29 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
         {
           SendMessage(hwnd,WM_COMMAND,IDOK,0);
         }
+        else if (l->code == LVN_COLUMNCLICK)
+        {
+          NMLISTVIEW* lv = (NMLISTVIEW*) l;
+          BrowseFile_State *parms = (BrowseFile_State *)GetWindowLongPtr(hwnd,GWLP_USERDATA);
+          parms->sortrev=!parms->sortrev;
+          char lcol = parms->sortcol;
+          if ((int)parms->sortcol != lv->iSubItem)
+          { 
+            parms->sortcol = (char)lv->iSubItem; 
+            parms->sortrev=0; 
+          }
 
+          HWND hdr = ListView_GetHeader(l->hwndFrom);
+          HDITEM hi;
+          memset(&hi,0,sizeof(hi));
+          hi.mask = HDI_FORMAT;
+          Header_SetItem(hdr,lcol,&hi);
+          hi.fmt = parms->sortrev ? HDF_SORTDOWN : HDF_SORTUP;
+          Header_SetItem(hdr,parms->sortcol,&hi);
+
+          parms->viewlist_sort();
+          ListView_RedrawItems(l->hwndFrom,0, parms->viewlist.GetSize());
+        }
       }
     break;
   }
@@ -593,7 +721,7 @@ bool BrowseForSaveFile(const char *text, const char *initialdir, const char *ini
                        char *fn, int fnsize)
 {
   BrowseFile_State state( text, initialdir, initialfile, extlist, BrowseFile_State::SAVE, fn, fnsize );
-  if (!DialogBoxParam(NULL,NULL,NULL,swellFileSelectProc,(LPARAM)&state)) return false;
+  if (!DialogBoxParam(NULL,NULL,GetForegroundWindow(),swellFileSelectProc,(LPARAM)&state)) return false;
   if (fn && fnsize > 0 && extlist && *extlist && WDL_get_fileext(fn)[0] != '.')
   {
     const char *erd = extlist+strlen(extlist)+1;
@@ -611,7 +739,7 @@ bool BrowseForSaveFile(const char *text, const char *initialdir, const char *ini
 bool BrowseForDirectory(const char *text, const char *initialdir, char *fn, int fnsize)
 {
   BrowseFile_State state( text, initialdir, initialdir, NULL, BrowseFile_State::OPENDIR, fn, fnsize );
-  return !!DialogBoxParam(NULL,NULL,NULL,swellFileSelectProc,(LPARAM)&state);
+  return !!DialogBoxParam(NULL,NULL,GetForegroundWindow(),swellFileSelectProc,(LPARAM)&state);
 }
 
 
@@ -620,7 +748,7 @@ char *BrowseForFiles(const char *text, const char *initialdir,
 {
   BrowseFile_State state( text, initialdir, initialfile, extlist, 
            allowmul ? BrowseFile_State::OPENMULTI : BrowseFile_State::OPEN, NULL, 0 );
-  return DialogBoxParam(NULL,NULL,NULL,swellFileSelectProc,(LPARAM)&state) ? state.fnout : NULL;
+  return DialogBoxParam(NULL,NULL,GetForegroundWindow(),swellFileSelectProc,(LPARAM)&state) ? state.fnout : NULL;
 }
 
 
@@ -656,8 +784,11 @@ static LRESULT WINAPI swellMessageBoxProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
         {
           DrawText(dc,(const char *)parms[0],-1,&labsize,DT_CALCRECT|DT_NOPREFIX);// if dc isnt valid yet, try anyway
         }
-        labsize.top += 10;
-        labsize.bottom += 18;
+
+        const int sc10 = SWELL_UI_SCALE(10);
+        const int sc8 = SWELL_UI_SCALE(8);
+        labsize.top += sc10;
+        labsize.bottom += sc10 + sc8;
 
         int x;
         int button_height=0, button_total_w=0;;
@@ -665,12 +796,12 @@ static LRESULT WINAPI swellMessageBoxProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
         {
           RECT r={0,0,35,12};
           DrawText(dc,buttons[x],-1,&r,DT_CALCRECT|DT_NOPREFIX|DT_SINGLELINE);
-          button_sizes[x] = r.right-r.left + 8;
+          button_sizes[x] = r.right-r.left + sc10;
           button_total_w += button_sizes[x] + (x ? button_spacing : 0);
-          if (r.bottom-r.top+10 > button_height) button_height = r.bottom-r.top+10;
+          if (r.bottom-r.top+sc10 > button_height) button_height = r.bottom-r.top+sc10;
         }
 
-        if (labsize.right < button_total_w+16) labsize.right = button_total_w+16;
+        if (labsize.right < button_total_w+sc8*2) labsize.right = button_total_w+sc8*2;
 
         int xpos = labsize.right/2 - button_total_w/2;
         for (x = 0; x < nbuttons; x ++)
@@ -681,8 +812,9 @@ static LRESULT WINAPI swellMessageBoxProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
 
         if (dc) ReleaseDC(lab,dc);
         SWELL_MakeSetCurParms(1,1,0,0,NULL,false,false);
-        SetWindowPos(hwnd,NULL,0,0,labsize.right + 16,labsize.bottom + button_height + 8,SWP_NOACTIVATE|SWP_NOZORDER|SWP_NOMOVE);
-        if (lab) SetWindowPos(lab,NULL,8,0,labsize.right,labsize.bottom,SWP_NOACTIVATE|SWP_NOZORDER);
+        SetWindowPos(hwnd,NULL,0,0,
+              labsize.right + sc8*2,labsize.bottom + button_height + sc8,SWP_NOACTIVATE|SWP_NOZORDER|SWP_NOMOVE);
+        if (lab) SetWindowPos(lab,NULL,sc8,0,labsize.right,labsize.bottom,SWP_NOACTIVATE|SWP_NOZORDER);
       }
     break;
     case WM_SIZE:
@@ -707,11 +839,12 @@ static LRESULT WINAPI swellMessageBoxProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
           } else if (idx==0x100) lbl=h;
           h = GetWindow(h,GW_HWNDNEXT);
         }
-        if (lbl) SetWindowPos(h,NULL,8,0,r.right,r.bottom - 8 - button_height,  SWP_NOZORDER|SWP_NOACTIVATE);
+        const int sc8 = SWELL_UI_SCALE(8);
+        if (lbl) SetWindowPos(h,NULL,sc8,0,r.right,r.bottom - sc8 - button_height,  SWP_NOZORDER|SWP_NOACTIVATE);
         int xo = r.right/2 - (bxwid + (tabsz-1)*button_spacing)/2,x;
         for (x=tabsz-1; x >=0; x--)
         {
-          SetWindowPos(tab[x],NULL,xo,r.bottom - button_height - 8, 0,0, SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE);
+          SetWindowPos(tab[x],NULL,xo,r.bottom - button_height - sc8, 0,0, SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE);
           xo += w[x] + button_spacing;
         }
       }
@@ -731,7 +864,9 @@ static LRESULT WINAPI swellMessageBoxProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
 
 int MessageBox(HWND hwndParent, const char *text, const char *caption, int type)
 {
+#ifndef SWELL_LICE_GDI
   printf("MessageBox: %s %s\n",text,caption);
+#endif
   const void *parms[4]= {text,caption,(void*)(INT_PTR)type} ;
   return DialogBoxParam(NULL,NULL,hwndParent,swellMessageBoxProc,(LPARAM)parms);
 
@@ -773,6 +908,359 @@ int MessageBox(HWND hwndParent, const char *text, const char *caption, int type)
   
   return ret; 
 #endif
+}
+
+#ifdef SWELL_LICE_GDI
+struct ChooseColor_State {
+  int ncustom;
+  int *custom;
+
+  int h,s,v;
+
+  LICE_IBitmap *bm;
+};
+
+// we need to make a more accurate LICE_HSV2RGB pair, this one is lossy, doh
+static LRESULT WINAPI swellColorSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+  static int s_reent,s_vmode;
+  static int wndw, custsz, buth, border, butw, edh, edlw, edew, vsize, psize, yt;
+  if (!wndw)
+  {
+    wndw = SWELL_UI_SCALE(400);
+    custsz = SWELL_UI_SCALE(20);
+    butw = SWELL_UI_SCALE(50);
+    buth = SWELL_UI_SCALE(24);
+    border = SWELL_UI_SCALE(4);
+    edh = SWELL_UI_SCALE(20);
+    edlw = SWELL_UI_SCALE(16);
+    edew = SWELL_UI_SCALE(40);
+    vsize = SWELL_UI_SCALE(40);
+    psize = border+edlw + edew;
+    yt = border + psize + border + (edh + border)*6;
+  }
+
+  const int customperrow = (wndw-border)/(custsz+border);
+  switch (uMsg)
+  {
+    case WM_CREATE:
+      if (lParam)  // swell-specific
+      {
+        SetWindowLong(hwnd,GWL_WNDPROC,(LPARAM)SwellDialogDefaultWindowProc);
+        SetWindowLong(hwnd,DWL_DLGPROC,(LPARAM)swellColorSelectProc);
+        SetWindowLongPtr(hwnd,GWLP_USERDATA,lParam);
+
+        SetWindowText(hwnd,"Choose Color");
+
+        SWELL_MakeSetCurParms(1,1,0,0,hwnd,false,false);
+
+        SWELL_MakeButton(0, "OK", IDOK,0,0,0,0, 0);
+        SWELL_MakeButton(0, "Cancel", IDCANCEL,0,0,0,0, 0);
+
+        static const char * const lbl[] = { "R","G","B","H","S","V"};
+        for (int x=0;x<6;x++)
+        {
+          SWELL_MakeLabel(0,lbl[x], 0x100+x, 0,0,0,0, 0); 
+          SWELL_MakeEditField(0x200+x, 0,0,0,0,  0);
+        }
+
+        ChooseColor_State *cs = (ChooseColor_State*)GetWindowLongPtr(hwnd,GWLP_USERDATA);
+        SWELL_MakeSetCurParms(1,1,0,0,NULL,false,false);
+        int nrows = ((cs?cs->ncustom : 0 ) + customperrow-1)/wdl_max(customperrow,1);
+        SetWindowPos(hwnd,NULL,0,0, wndw, 
+            yt + buth + border + nrows * (custsz+border), 
+            SWP_NOZORDER|SWP_NOMOVE);
+        SendMessage(hwnd,WM_USER+100,0,3);
+      }
+    break;
+    case WM_LBUTTONDOWN:
+    case WM_RBUTTONDOWN:
+      {
+        ChooseColor_State *cs = (ChooseColor_State*)GetWindowLongPtr(hwnd,GWLP_USERDATA);
+        if (!cs) break;
+        RECT r;
+        GetClientRect(hwnd,&r);
+        const int xt = r.right - edew - edlw - border*3;
+
+        const int y = GET_Y_LPARAM(lParam);
+        const int x = GET_X_LPARAM(lParam);
+        if (x < xt && y < yt)
+        {
+          s_vmode = x >= xt-vsize;
+          SetCapture(hwnd);
+          // fall through
+        }
+        else 
+        {
+          if (cs->custom && cs->ncustom && y >= yt && y < r.bottom - buth - border)
+          {
+            int row = (y-yt) / (custsz+border), rowoffs = (y-yt) % (custsz+border);
+            if (rowoffs < custsz)
+            {
+              int col = (x-border) / (custsz+border), coloffs = (x-border) % (custsz+border);
+              if (coloffs < custsz)
+              {
+                col += customperrow*row;
+                if (col >= 0 && col < cs->ncustom)
+                {
+                  if (uMsg == WM_LBUTTONDOWN)
+                  {
+                    LICE_RGB2HSV(GetRValue(cs->custom[col]),GetGValue(cs->custom[col]),GetBValue(cs->custom[col]),&cs->h,&cs->s,&cs->v);
+                    SendMessage(hwnd,WM_USER+100,0,3);
+                  }
+                  else
+                  {
+                    int r,g,b;
+                    LICE_HSV2RGB(cs->h,cs->s,cs->v,&r,&g,&b);
+                    cs->custom[col] = RGB(r,g,b);
+                    InvalidateRect(hwnd,NULL,FALSE);
+                  }
+                }
+              }
+            }
+          }
+          break;
+        }
+        // fall through
+      }
+    case WM_MOUSEMOVE:
+      if (GetCapture()==hwnd)
+      {
+        RECT r;
+        GetClientRect(hwnd,&r);
+        const int xt = r.right - edew - edlw - border*3;
+        ChooseColor_State *cs = (ChooseColor_State*)GetWindowLongPtr(hwnd,GWLP_USERDATA);
+        if (!cs) break;
+        int var = 255 - (GET_Y_LPARAM(lParam) - border)*256 / (yt-border*2);
+        if (var<0)var=0;
+        else if (var>255)var=255;
+        if (s_vmode)
+        {
+          if (var != cs->v)
+          {
+            cs->v=var;
+            SendMessage(hwnd,WM_USER+100,0,3);
+          }
+        }
+        else
+        {
+          int hue = (GET_X_LPARAM(lParam) - border)*384 / (xt-border - vsize);
+          if (hue<0) hue=0;
+          else if (hue>383) hue=383;
+          if (cs->h != hue || cs->s != var)
+          {
+            cs->h=hue;
+            cs->s=var;
+            SendMessage(hwnd,WM_USER+100,0,3);
+          }
+        }
+      }
+    break;
+    case WM_LBUTTONUP:
+    case WM_RBUTTONUP:
+      ReleaseCapture();
+    break;
+    case WM_PAINT:
+      {
+        PAINTSTRUCT ps;
+        ChooseColor_State *cs = (ChooseColor_State*)GetWindowLongPtr(hwnd,GWLP_USERDATA);
+        if (cs && BeginPaint(hwnd,&ps))
+        {
+          RECT r;
+          GetClientRect(hwnd,&r);
+          const int xt = r.right - edew - edlw - border*3;
+          if (cs->custom && cs->ncustom)
+          {
+            int ypos = yt;
+            int xpos = border;
+            for (int x = 0; x < cs->ncustom; x ++)
+            {
+              HBRUSH br = CreateSolidBrush(cs->custom[x]);
+              RECT tr={xpos,ypos,xpos+custsz, ypos+custsz };
+              FillRect(ps.hdc,&tr,br);
+              DeleteObject(br);
+
+              xpos += border+custsz;
+              if (xpos+custsz >= r.right)
+              {
+                xpos=border;
+                ypos += border + custsz;
+              }
+            }
+          }
+
+          {
+            int rr,g,b;
+            LICE_HSV2RGB(cs->h,cs->s,cs->v,&rr,&g,&b);
+            HBRUSH br = CreateSolidBrush(RGB(rr,g,b));
+            RECT tr={r.right - border - psize, border, r.right-border, border+psize};
+            FillRect(ps.hdc,&tr,br);
+            DeleteObject(br);
+          }
+
+          if (!cs->bm) cs->bm = new LICE_SysBitmap(xt-border,yt-border);
+          else cs->bm->resize(xt-border,yt-border);
+
+          int x1 = xt - border - vsize;
+          int var = cs->v;
+
+          const int ysz = yt-border*2;
+          const int vary = ysz - 1 - (ysz * cs->v)/256;
+
+          for (int y = 0; y < ysz; y ++)
+          {
+            LICE_pixel *wr = cs->bm->getBits() + cs->bm->getRowSpan() * y;
+            const int sat = 255 - y*256/ysz;
+            double xx=0.0, dx=384.0/x1;
+            int x;
+            for (x = 0; x < x1; x++)
+            {
+              *wr++ = LICE_HSV2Pix((int)(xx+0.5),sat,var,255);
+              xx+=dx;
+            }
+            LICE_pixel p = LICE_HSV2Pix(cs->h,cs->s,sat ^ (y==vary ? 128 : 0),255);
+            for (;x < xt-border;x++) *wr++ = p;
+          }
+          LICE_pixel p = LICE_HSV2Pix(cs->h,cs->s,(128+cs->v)&255,255);
+          const int saty = ysz - 1 - (ysz * cs->s)/256;
+          const int huex = (x1*cs->h)/384;
+          LICE_Line(cs->bm,huex,saty-4,huex,saty+4,p,.75f,LICE_BLIT_MODE_COPY,false);
+          LICE_Line(cs->bm,huex-4,saty,huex+4,saty,p,.75f,LICE_BLIT_MODE_COPY,false);
+
+          BitBlt(ps.hdc,border,border,xt-border,ysz,cs->bm->getDC(),0,0,SRCCOPY);
+
+          EndPaint(hwnd,&ps);
+        }
+      }
+
+    break;
+    case WM_GETMINMAXINFO:
+      {
+        LPMINMAXINFO p=(LPMINMAXINFO)lParam;
+        p->ptMinTrackSize.x = 300;
+        p->ptMinTrackSize.y = 300;
+      }
+    break;
+    case WM_USER+100:
+      {
+        ChooseColor_State *cs = (ChooseColor_State*)GetWindowLongPtr(hwnd,GWLP_USERDATA);
+        if (cs)
+        {
+          int t[6];
+          t[3] = cs->h;
+          t[4] = cs->s;
+          t[5] = cs->v;
+          LICE_HSV2RGB(t[3],t[4],t[5],t,t+1,t+2);
+          s_reent++;
+          for (int x=0;x<6;x++) if (lParam & ((x<3)?1:2)) SetDlgItemInt(hwnd,0x200+x,x==3 ? t[x]*360/384 : t[x],FALSE);
+          s_reent--;
+          InvalidateRect(hwnd,NULL,FALSE);
+        }
+      }
+    break;
+    case WM_SIZE:
+      {
+        RECT r;
+        GetClientRect(hwnd,&r);
+        int tx = r.right - edew-edlw-border*2, ty = border*2 + psize;
+        for (int x=0;x<6;x++)
+        {
+          SetWindowPos(GetDlgItem(hwnd,0x100+x),NULL,tx, ty, edlw, edh, SWP_NOZORDER);
+          SetWindowPos(GetDlgItem(hwnd,0x200+x),NULL,tx+edlw+border, ty, edew, edh, SWP_NOZORDER);
+          ty += border+edh;
+        }
+
+        r.right -= border + butw;
+        r.bottom -= border + buth;
+        SetWindowPos(GetDlgItem(hwnd,IDCANCEL), NULL, r.right, r.bottom, butw, buth, SWP_NOZORDER);
+        r.right -= border*2 + butw;
+        SetWindowPos(GetDlgItem(hwnd,IDOK), NULL, r.right, r.bottom, butw, buth, SWP_NOZORDER);
+
+      }
+    break;
+    case WM_COMMAND:
+      switch (LOWORD(wParam))
+      {
+        case IDCANCEL:
+          EndDialog(hwnd,0);
+        break;
+        case IDOK:
+          EndDialog(hwnd,1);
+        break;
+        case 0x200:
+        case 0x201:
+        case 0x202:
+        case 0x203:
+        case 0x204:
+        case 0x205:
+          if (!s_reent)
+          {
+            const bool ishsv = LOWORD(wParam) >= 0x203;
+            int offs = ishsv ? 0x203 : 0x200;
+            BOOL t = FALSE;
+            int h = GetDlgItemInt(hwnd,offs++,&t,FALSE);
+            if (!t) break;
+            int s = GetDlgItemInt(hwnd,offs++,&t,FALSE);
+            if (!t) break;
+            int v = GetDlgItemInt(hwnd,offs++,&t,FALSE);
+            if (!t) break;
+
+            ChooseColor_State *cs = (ChooseColor_State*)GetWindowLongPtr(hwnd,GWLP_USERDATA);
+            if (!ishsv) 
+            {
+              if (h<0) h=0; else if (h>255) h=255;
+              if (s<0) s=0; else if (s>255) s=255;
+              if (v<0) v=0; else if (v>255) v=255;
+              LICE_RGB2HSV(h,s,v,&h,&s,&v);
+            }
+            else
+            {
+              h = h * 384 / 360;
+              if (h<0) h=0; else if (h>384) h=384;
+              if (s<0) s=0; else if (s>255) s=255;
+              if (v<0) v=0; else if (v>255) v=255;
+            }
+
+            if (cs)
+            {
+              cs->h = h;
+              cs->s = s;
+              cs->v = v;
+            }
+            SendMessage(hwnd,WM_USER+100,0,ishsv?1:2);
+          }
+        break;
+      }
+    break;
+
+  }
+  return 0;
+}
+#endif //SWELL_LICE_GDI
+
+bool SWELL_ChooseColor(HWND h, int *val, int ncustom, int *custom)
+{
+#ifdef SWELL_LICE_GDI
+  ChooseColor_State state = { ncustom, custom };
+  int c = val ? *val : 0;
+  LICE_RGB2HSV(GetRValue(c),GetGValue(c),GetBValue(c),&state.h,&state.s,&state.v);
+  bool rv = DialogBoxParam(NULL,NULL,h,swellColorSelectProc,(LPARAM)&state)!=0;
+  delete state.bm;
+  if (rv && val) 
+  {
+    int r,g,b;
+    LICE_HSV2RGB(state.h,state.s,state.v,&r,&g,&b);
+    *val = RGB(r,g,b);
+  }
+  return rv;
+#else
+  return false;
+#endif
+}
+
+bool SWELL_ChooseFont(HWND h, LOGFONT *lf)
+{
+  return false;
 }
 
 #endif

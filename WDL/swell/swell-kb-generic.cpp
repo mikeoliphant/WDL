@@ -106,10 +106,10 @@ void SWELL_SetCursor(HCURSOR curs)
 
   m_last_setcursor=curs;
 #ifdef SWELL_TARGET_GDK
-  extern GdkWindow *SWELL_g_focus_oswindow;
-  if (SWELL_g_focus_oswindow) 
+  extern SWELL_OSWINDOW SWELL_focused_oswindow;
+  if (SWELL_focused_oswindow)
   {
-    gdk_window_set_cursor(SWELL_g_focus_oswindow,(GdkCursor *)curs);
+    gdk_window_set_cursor(SWELL_focused_oswindow,(GdkCursor *)curs);
   }
 #endif
 }
@@ -131,32 +131,64 @@ bool SWELL_IsCursorVisible()
 {
   return m_curvis_cnt>=0;
 }
+
+#ifdef SWELL_TARGET_GDK
+static int g_swell_mouse_relmode_curpos_x;
+static int g_swell_mouse_relmode_curpos_y;
+static bool g_swell_mouse_relmode;
+static HCURSOR g_last_cursor;
+#endif
+
 int SWELL_ShowCursor(BOOL bShow)
 {
-  static HCURSOR last_cursor;
   m_curvis_cnt += (bShow?1:-1);
   if (m_curvis_cnt==-1 && !bShow) 
   {
 #ifdef SWELL_TARGET_GDK
-    last_cursor = GetCursor();
+    gint x1, y1;
+    #if SWELL_TARGET_GDK == 3
+    GdkDevice *dev = gdk_device_manager_get_client_pointer (gdk_display_get_device_manager (gdk_display_get_default ()));
+    gdk_device_get_position (dev, NULL, &x1, &y1);
+    #else
+    gdk_display_get_pointer(gdk_display_get_default(), NULL, &x1, &y1, NULL);
+    #endif
+    g_swell_mouse_relmode_curpos_x = x1;
+    g_swell_mouse_relmode_curpos_y = y1;
+    g_last_cursor = GetCursor();
     SetCursor((HCURSOR)gdk_cursor_new_for_display(gdk_display_get_default(),GDK_BLANK_CURSOR));
+    g_swell_mouse_relmode=true;
 #endif
 
   }
   if (m_curvis_cnt==0 && bShow) 
   {
 #ifdef SWELL_TARGET_GDK
-    SetCursor(last_cursor);
+    SetCursor(g_last_cursor);
+    g_swell_mouse_relmode=false;
+    #if SWELL_TARGET_GDK == 3
+    gdk_device_warp(gdk_device_manager_get_client_pointer(gdk_display_get_device_manager(gdk_display_get_default())),
+                     gdk_screen_get_default(),
+                     g_swell_mouse_relmode_curpos_x, g_swell_mouse_relmode_curpos_y);
+    #else
+    gdk_display_warp_pointer(gdk_display_get_default(),gdk_screen_get_default(), g_swell_mouse_relmode_curpos_x, g_swell_mouse_relmode_curpos_y);
+    #endif
 #endif
   }
   return m_curvis_cnt;
 }
 
-
 BOOL SWELL_SetCursorPos(int X, int Y)
 {  
 #ifdef SWELL_TARGET_GDK
-  gdk_display_warp_pointer(gdk_display_get_default(),gdk_screen_get_default(),X,Y);
+  if (g_swell_mouse_relmode) return false;
+ 
+  #if SWELL_TARGET_GDK == 3
+  gdk_device_warp(gdk_device_manager_get_client_pointer(gdk_display_get_device_manager(gdk_display_get_default())),
+                     gdk_screen_get_default(),
+                     X, Y);
+  #else
+  gdk_display_warp_pointer(gdk_display_get_default(),gdk_screen_get_default(), X, Y);
+  #endif
   return true;
 #else
   return false;

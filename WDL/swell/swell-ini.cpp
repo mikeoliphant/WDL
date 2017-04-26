@@ -95,11 +95,39 @@ static bool fgets_to_typedbuf(WDL_TypedBuf<char> *buf, FILE *fp)
 }
 
 
+void SWELL_SetDefaultIniFile(const char *p) // deprecated will be removed very soon
+{
+  SWELL_ExtendedAPI("INIFILE",(void *)p);
+}
+
 // return true on success
 static iniFileContext *GetFileContext(const char *name)
 {
   static WDL_UINT64 acc_cnt;
   int best_z = 0;
+  char fntemp[512];
+  if (!name || !strstr(name,"/"))
+  {
+    extern char *g_swell_defini;
+    if (g_swell_defini)
+    {
+      lstrcpyn_safe(fntemp,g_swell_defini,sizeof(fntemp));
+    }
+    else
+    {
+      const char *p = getenv("HOME");
+      snprintf(fntemp,sizeof(fntemp),"%s/.libSwell.ini",
+        p && *p ? p : "/tmp");
+    }
+    if (name && *name)
+    {
+      WDL_remove_fileext(fntemp);
+      snprintf_append(fntemp,sizeof(fntemp),"_%s%s",name,
+        stricmp(WDL_get_fileext(name),".ini")?".ini":"");
+    }
+    name = fntemp;
+  }
+
   {
     int w;
     WDL_UINT64 bestcnt = 0; 
@@ -271,7 +299,7 @@ static void WriteBackFile(iniFileContext *ctx)
 
 BOOL WritePrivateProfileSection(const char *appname, const char *strings, const char *fn)
 {
-  if (!appname || !fn) return FALSE;
+  if (!appname) return FALSE;
   WDL_MutexLock lock(&m_mutex);
   iniFileContext *ctx = GetFileContext(fn);
   if (!ctx) return FALSE;
