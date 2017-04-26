@@ -48,20 +48,12 @@ class WaveWriter
 {
   public:
     // appending doesnt check sample types
-    WaveWriter()
-    {
-      m_fp=0;
-      m_bps=0;
-      m_srate=0;
-      m_nch=0;
-    }
+    WaveWriter(): m_fp(0), m_data_size(0), m_total_size(0), m_bps(0),
+    m_nch(0), m_srate(0) {}
 
     WaveWriter(const char *filename, int bps, int nch, int srate, int allow_append=1) 
     {
-      m_fp=0;
-      m_bps=0;
-      m_srate=0;
-      m_nch=0;
+      m_bps=m_srate=m_nch=0;
       Open(filename,bps,nch,srate,allow_append);
 
     }
@@ -70,6 +62,7 @@ class WaveWriter
     {
       m_fn.Set(filename);
       m_fp=0;
+      m_data_size=m_total_size=0;
       if (allow_append)
       {
         m_fp=fopen(filename,"r+b");
@@ -103,12 +96,12 @@ class WaveWriter
     {
       if (m_fp)
       {
-        unsigned int bytelen=ftell(m_fp)-44;
+        EndDataChunk();
         fseek(m_fp,0,SEEK_SET);
 
         // write header
         fwrite("RIFF",1,4,m_fp);
-        unsigned int riff_size=bytelen+44-8;
+        unsigned int riff_size=m_total_size+44-8;
         fputi32(riff_size,m_fp);
         fwrite("WAVEfmt \x10\0\0\0",1,12,m_fp);
         fwrite(m_bps<32?"\1\0":"\3\0",1,2,m_fp); // PCM or float
@@ -120,7 +113,7 @@ class WaveWriter
         fputi16(blockalign,m_fp); // block alignment
         fputi16(m_bps&~7,m_fp); // bits/sample
         fwrite("data",1,4,m_fp);
-        fputi32(bytelen,m_fp); // size
+        fputi32(m_data_size,m_fp); // size
 
         fclose(m_fp);
         m_fp=0;
@@ -136,20 +129,28 @@ class WaveWriter
 
     int Status() const { return !!m_fp; }
 
-    int BytesWritten()
+    unsigned int BytesWritten() const
     {
-      if (m_fp) return ftell(m_fp)-44;
-      return 0;
+      return m_total_size ? m_total_size : m_data_size;
     }
 
-    void WriteRaw(void *buf, int len)
+    // Length/size in samples.
+    unsigned int GetLength() const { return m_data_size / (m_nch * (m_bps/8)); }
+    unsigned int GetSize() const { return m_data_size / (m_bps/8); }
+
+    void WriteRaw(void *buf, unsigned int len)
     {
-      if (m_fp) fwrite(buf,1,len,m_fp);
+      if (!m_fp) return;
+
+      len = fwrite(buf,1,len,m_fp);
+      if (m_total_size) m_total_size += len; else m_data_size += len;
     }
 
     void WriteFloats(float *samples, unsigned int nsamples)
     {
       if (!m_fp) return;
+
+      m_data_size += nsamples * (m_bps/8);
 
       if (m_bps == 8)
       {
@@ -208,6 +209,8 @@ class WaveWriter
     {
       if (!m_fp) return;
 
+      m_data_size += nsamples * (m_bps/8);
+
       if (m_bps == 8)
       {
         while (nsamples-->0)
@@ -264,6 +267,8 @@ class WaveWriter
     void WriteFloatsNI(float **samples, unsigned int offs, unsigned int nsamples, int nchsrc=0)
     {
       if (!m_fp) return;
+
+      m_data_size += nsamples * m_nch * (m_bps/8);
 
       if (nchsrc < 1) nchsrc=m_nch;
 
@@ -338,6 +343,8 @@ class WaveWriter
     {
       if (!m_fp) return;
 
+      m_data_size += nsamples * m_nch * (m_bps/8);
+
       if (nchsrc < 1) nchsrc=m_nch;
 
       double *stackbuf[STACKBUF_MAX_NCH], **tmpptrs=GetTmpPtrs(stackbuf,samples,offs,nchsrc);
@@ -407,6 +414,23 @@ class WaveWriter
       }
     }
 
+    void WriteChunk(void *buf, unsigned int len)
+    {
+      EndDataChunk();
+      if (m_fp) m_total_size += fwrite(buf,1,len,m_fp);
+    }
+
+    void EndDataChunk()
+    {
+      if (!m_fp || m_total_size) return;
+
+      m_total_size = m_data_size;
+      if (m_total_size & 1)
+      {
+        m_total_size++;
+        fputc(m_bps == 8 ? 0x80 : 0, m_fp);
+      }
+    }
 
     int get_nch() const { return m_nch; } 
     int get_srate() const { return m_srate; }
@@ -474,6 +498,7 @@ class WaveWriter
 
     WDL_String m_fn;
     FILE *m_fp;
+    unsigned int m_data_size, m_total_size;
     int m_bps,m_nch,m_srate;
 };
 
