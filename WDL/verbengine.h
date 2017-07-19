@@ -180,6 +180,8 @@ public:
     }
   }
 
+  double GetSampleRate() const { return m_srate; }
+
   #ifdef WDL_REVERB_MONO
   void ProcessSampleBlock(double *spl0, double *outp0, int ns)
   #else
@@ -414,6 +416,9 @@ public:
   void SetRoomSize(double sz) { m_roomsize=sz;; } // 0.3..0.99 or so
   void SetDampening(double dmp) { m_damp=dmp; } // 0..1
 
+  double GetRoomSize() const { return m_roomsize; }
+  double GetDampening() const { return m_damp; }
+
 #ifndef WDL_REVERB_FIXED_WIDTH
   void SetWidth(double wid) 
   {  
@@ -424,10 +429,13 @@ public:
     else wid-=0.5;
     m_wid=wid;
   } // -1..1
+
+  double GetWidth() const { return m_wid<0 ? 2*m_wid+1 : 2*m_wid-1; }
 #endif
 
 #ifdef WDL_REVERB_ENABLE_SET_NCH
   void SetNumChannels(int n) { m_nch = n; } // 1 or 2
+  int GetNumChannels() const { return m_nch; }
 #endif
 
 private:
