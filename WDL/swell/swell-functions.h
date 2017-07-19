@@ -1,5 +1,5 @@
-/* Cockos SWELL (Simple/Small Win32 Emulation Layer for L****)
-   Copyright (C) 2006-2010, Cockos, Inc.
+/* Cockos SWELL (Simple/Small Win32 Emulation Layer for Linux/OSX)
+   Copyright (C) 2006 and later, Cockos, Inc.
 
     This software is provided 'as-is', without any express or implied
     warranty.  In no event will the authors be held liable for any damages
@@ -1015,7 +1015,6 @@ SWELL_API_DEFINE(void, StretchBlt,(HDC hdcOut, int x, int y, int w, int h, HDC h
 #ifndef SWELL_TARGET_OSX
 SWELL_API_DEFINE(void, StretchBltFromMem,(HDC hdcOut, int x, int y, int w, int h, const void *bits, int srcw, int srch, int srcspan))
 SWELL_API_DEFINE(int, SWELL_GetScaling256, (void))
-SWELL_API_DEFINE(void, SWELL_SetDefaultIniFile, (const char*)) // deprecated in favor of SWELL_ExtendedAPI("INIFILE")
 #endif
 
 SWELL_API_DEFINE(void*, SWELL_ExtendedAPI, (const char *key, void *v))

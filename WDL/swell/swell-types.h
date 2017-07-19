@@ -1,5 +1,5 @@
-/* Cockos SWELL (Simple/Small Win32 Emulation Layer for L****)
-   Copyright (C) 2006-2010, Cockos, Inc.
+/* Cockos SWELL (Simple/Small Win32 Emulation Layer for Linux/OSX)
+   Copyright (C) 2006 and later, Cockos, Inc.
 
     This software is provided 'as-is', without any express or implied
     warranty.  In no event will the authors be held liable for any damages
@@ -109,7 +109,7 @@ typedef uintptr_t UINT_PTR, *PUINT_PTR, ULONG_PTR, *PULONG_PTR, DWORD_PTR, *PDWO
 #define MAX_PATH 1024
 
 
-#if !defined(max) && !defined(WDL_NO_DEFINE_MINMAX)
+#if !defined(max) && !defined(WDL_NO_DEFINE_MINMAX) && !defined(NOMINMAX)
 #define max(x,y) ((x)<(y)?(y):(x))
 #define min(x,y) ((x)<(y)?(x):(y))
 #endif
@@ -480,7 +480,7 @@ typedef struct
   int cch;
 } MENUITEMINFO;
 
-#define SetMenuDefaultItem(a,b,c) (0)
+#define SetMenuDefaultItem(a,b,c) do { if ((a)||(b)||(c)) { } } while(0)
 
 typedef struct {
   POINT ptReserved, ptMaxSize, ptMaxPosition, ptMinTrackSize, ptMaxTrackSize;

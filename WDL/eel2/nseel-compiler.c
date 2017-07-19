@@ -833,7 +833,7 @@ opcodeRec *nseel_resolve_named_symbol(compileContext *ctx, opcodeRec *rec, int p
   int rel_prefix_idx=-2;
   int i;    
   char match_parmcnt[4]={-1,-1,-1,-1}; // [3] is guess
-  char match_parmcnt_pos=0;
+  unsigned char match_parmcnt_pos=0;
   char *sname = (char *)rec->relname;
   int is_string_prefix = parmcnt < 0 && sname[0] == '#';
 
@@ -2068,7 +2068,7 @@ start_over: // when an opcode changed substantially in optimization, goto here t
               else if (dv0)
               {
                 // pow(constant, x) = exp((x) * ln(constant)), if constant>0
-                opcodeRec *parm0 = op->parms.parms[0];
+                // opcodeRec *parm0 = op->parms.parms[0];
                 if (dvalue > 0.0)
                 {
                   static functionType expcpy={ "exp",    nseel_asm_1pdd,nseel_asm_1pdd_end,   1|NSEEL_NPARAMS_FLAG_CONST|BIF_RETURNSONSTACK|BIF_LASTPARMONSTACK, {&exp}, };
@@ -2624,6 +2624,9 @@ unsigned char *compileCodeBlockWithRet(compileContext *ctx, opcodeRec *rec, int 
     p+=GLUE_FUNC_LEAVE_SIZE;
   #endif
   memcpy(p,&GLUE_RET,sizeof(GLUE_RET)); p+=sizeof(GLUE_RET);
+#ifdef __arm__
+  __clear_cache(newblock2,p);
+#endif
   
   ctx->l_stats[2]+=funcsz+2;
   return newblock2;
@@ -2785,7 +2788,9 @@ static int compileNativeFunctionCall(compileContext *ctx, opcodeRec *op, unsigne
   else // not varparm
   {
     int pn;
+  #ifdef GLUE_HAS_FXCH
     int need_fxch=0;
+  #endif
     int last_nt_parm=-1, last_nt_parm_type;
     
     if (op->opcodeType == OPCODETYPE_FUNCX)
@@ -2984,7 +2989,9 @@ static int compileNativeFunctionCall(compileContext *ctx, opcodeRec *op, unsigne
             if (bufOut_len < parm_size + (int)sizeof(GLUE_POP_STACK_TO_FPSTACK)) RET_MINUS1_FAIL("size, popstacktofpstack 2")
             if (bufOut) memcpy(bufOut+parm_size,GLUE_POP_STACK_TO_FPSTACK,sizeof(GLUE_POP_STACK_TO_FPSTACK));
             parm_size += sizeof(GLUE_POP_STACK_TO_FPSTACK);
-            need_fxch = 1;
+            #ifdef GLUE_HAS_FXCH
+              need_fxch = 1;
+            #endif
           }
           else
           {
@@ -3011,7 +3018,9 @@ static int compileNativeFunctionCall(compileContext *ctx, opcodeRec *op, unsigne
                                   RETURNVALUE_FPSTACK,NULL,NULL,canHaveDenormalOutput);
           if (a<0) RET_MINUS1_FAIL("coc call here 2")
           parm_size+=a;
-          need_fxch = 1;
+          #ifdef GLUE_HAS_FXCH
+            need_fxch = 1;
+          #endif
         }
         else if (pn == n_params-1)  // last parameter, but we should call compileOpcodes to get it in the right format (compileOpcodes can optimize that process if it needs to)
         {
@@ -3049,7 +3058,9 @@ static int compileNativeFunctionCall(compileContext *ctx, opcodeRec *op, unsigne
           }
 
           parm_size+=a;
-          need_fxch = 0;
+          #ifdef GLUE_HAS_FXCH
+            need_fxch = 0;
+          #endif
 
           if (func == nseel_asm_assign)
           {
@@ -3586,7 +3597,10 @@ static int compileOpcodesInternal(compileContext *ctx, opcodeRec *op, unsigned c
   if (op->opcodeType == OPCODETYPE_FUNC2 && (op->fntype == FN_LOGICAL_AND || op->fntype == FN_LOGICAL_OR))
   {
     int fUse=0;
-    int parm_size,parm_size_pre;
+    int parm_size;
+#ifdef GLUE_MAX_JMPSIZE
+    int parm_size_pre;
+#endif
     int retType=RETURNVALUE_IGNORE;
     if (preferredReturnValues != RETURNVALUE_IGNORE) retType = RETURNVALUE_BOOL;
 
@@ -3598,7 +3612,9 @@ static int compileOpcodesInternal(compileContext *ctx, opcodeRec *op, unsigned c
     if (fUse > *fpStackUse) *fpStackUse=fUse;
 
 
+#ifdef GLUE_MAX_JMPSIZE
     parm_size_pre=parm_size;
+#endif
 
     {
       int sz2, fUse=0;
@@ -3664,7 +3680,9 @@ doNonInlinedAndOr_:
   if (op->opcodeType == OPCODETYPE_FUNC3 && op->fntype == FN_IF_ELSE) // special case: IF
   {
     int fUse=0;
+#ifdef GLUE_MAX_JMPSIZE
     int parm_size_pre;
+#endif
     int use_rv = RETURNVALUE_IGNORE;
     int rvMode=0;
     int parm_size = compileOpcodes(ctx,op->parms.parms[0],bufOut,bufOut_len, computTableSize, namespacePathToThis, RETURNVALUE_BOOL|RETURNVALUE_BOOL_REVERSED, &rvMode,&fUse, NULL);
@@ -3676,7 +3694,9 @@ doNonInlinedAndOr_:
     else if (preferredReturnValues & RETURNVALUE_BOOL) use_rv=RETURNVALUE_BOOL;
     
     *calledRvType = use_rv;
+#ifdef GLUE_MAX_JMPSIZE
     parm_size_pre = parm_size;
+#endif
 
     {
       int csz,hasSecondHalf;
@@ -4866,6 +4886,9 @@ had_error:
       memcpy(writeptr,&GLUE_RET,sizeof(GLUE_RET)); writeptr += sizeof(GLUE_RET);
       ctx->l_stats[1]=size;
       handle->code_size = (int) (writeptr - (unsigned char *)handle->code);
+#ifdef __arm__
+      __clear_cache(handle->code,writeptr);
+#endif
     }
     
     handle->blocks = ctx->blocks_head;
@@ -4919,7 +4942,9 @@ had_error:
 //------------------------------------------------------------------------------
 void NSEEL_code_execute(NSEEL_CODEHANDLE code)
 {
+#ifndef GLUE_TABPTR_IGNORED
   INT_PTR tabptr;
+#endif
   INT_PTR codeptr;
   codeHandleType *h = (codeHandleType *)code;
   if (!h || !h->code) return;
@@ -4936,7 +4961,9 @@ void NSEEL_code_execute(NSEEL_CODEHANDLE code)
   }
 #endif
 
+#ifndef GLUE_TABPTR_IGNORED
   tabptr=(INT_PTR)h->workTable;
+#endif
   //printf("calling code!\n");
   GLUE_CALL_CODE(tabptr,codeptr,(INT_PTR)h->ramPtr);
 

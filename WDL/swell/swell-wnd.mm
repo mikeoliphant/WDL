@@ -1,5 +1,5 @@
-/* Cockos SWELL (Simple/Small Win32 Emulation Layer for Losers (who use OS X))
-   Copyright (C) 2006-2007, Cockos, Inc.
+/* Cockos SWELL (Simple/Small Win32 Emulation Layer for Linux/OSX)
+   Copyright (C) 2006 and later, Cockos, Inc.
 
     This software is provided 'as-is', without any express or implied
     warranty.  In no event will the authors be held liable for any damages
@@ -3187,7 +3187,8 @@ HWND SWELL_MakeEditField(int idx, int x, int y, int w, int h, int flags)
       if (flags&SWELL_NOT_WS_VISIBLE) [obj2 setHidden:YES];
       [obj2 release];
       
-      NSRect tr={0,};
+      NSRect tr;
+      memset(&tr,0,sizeof(tr));
       tr.size = [obj2 contentSize];
       [obj setFrame:tr];
       [obj release];

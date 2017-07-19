@@ -1,6 +1,5 @@
-
-/* Cockos SWELL (Simple/Small Win32 Emulation Layer for Losers (who use OS X))
-   Copyright (C) 2006-2007, Cockos, Inc.
+/* Cockos SWELL (Simple/Small Win32 Emulation Layer for Linux/OSX)
+   Copyright (C) 2006 and later, Cockos, Inc.
 
     This software is provided 'as-is', without any express or implied
     warranty.  In no event will the authors be held liable for any damages
@@ -1024,7 +1023,7 @@ int DrawText(HDC ctx, const char *buf, int buflen, RECT *r, int align)
           CTLineRef l = (CTLineRef)CFArrayGetValueAtIndex(lines,x);
           if (l)
           {
-            CGFloat asc=0,desc=0,lead=0;
+            CGFloat desc=0,lead=0;
             int w = (int) floor(CTLineGetTypographicBounds(l,&asc,&desc,&lead)+0.5);
             int h =(int) floor(asc+desc+lead+1.5);
             line_h+=h;
@@ -1543,15 +1542,12 @@ HDC GetDC(HWND h)
       HDC ret= SWELL_CreateGfxContext([NSGraphicsContext currentContext]);
       if (ret)
       {
-        if ((ret)->ctx) CGContextSaveGState((ret)->ctx);
-        if ([(id)h isKindOfClass:[SWELL_hwndChild class]])
+        if (ret->ctx) CGContextSaveGState(ret->ctx);
+        if (!ret->GLgfxctx && [(id)h respondsToSelector:@selector(swellGetGLContext)])
         {
-          SWELL_hwndChild *view = (SWELL_hwndChild*)h;
-          if (!ret->GLgfxctx) 
-          {
-            ret->GLgfxctx = view->m_glctx;
-            if (view->m_glctx) [view->m_glctx setView:view];
-          }
+          NSOpenGLContext *glctx = (NSOpenGLContext*)[(id)h swellGetGLContext];
+          ret->GLgfxctx = glctx;
+          if (glctx) [glctx setView:(NSView *)h];
         }
       }
       return ret;

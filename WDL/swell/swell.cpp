@@ -1,6 +1,5 @@
-
-/* Cockos SWELL (Simple/Small Win32 Emulation Layer for Losers (who use OS X))
-   Copyright (C) 2006-2007, Cockos, Inc.
+/* Cockos SWELL (Simple/Small Win32 Emulation Layer for Linux/OSX)
+   Copyright (C) 2006 and later, Cockos, Inc.
 
     This software is provided 'as-is', without any express or implied
     warranty.  In no event will the authors be held liable for any damages
@@ -32,6 +31,7 @@
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/fcntl.h>
+#include <sys/resource.h>
 
 
 #include "swell-internal.h"
@@ -551,67 +551,6 @@ BOOL ResetEvent(HANDLE hand)
   return FALSE;
 }
 
-HANDLE CreateFile( const char * lpFileName,
-                  DWORD dwDesiredAccess,
-                  DWORD dwShareMode,
-                  void *lpSecurityAttributes,
-                  DWORD dwCreationDisposition,
-                  DWORD dwFlagsAndAttributes,
-                  HANDLE hTemplateFile)
-{
-  return 0;// INVALID_HANDLE_VALUE;
-}
-
-DWORD SetFilePointer(HANDLE hFile, DWORD low, DWORD *high)
-{ 
-  SWELL_InternalObjectHeader_File *file=(SWELL_InternalObjectHeader_File*)hFile;
-  if (!file || file->hdr.type != INTERNAL_OBJECT_FILE || !file->fp || (high && *high) || fseek(file->fp,low,SEEK_SET)==-1) { if (high) *high=0xffffffff; return 0xffffffff; }
-  return ftell(file->fp);
-}
-
-DWORD GetFilePointer(HANDLE hFile, DWORD *high)
-{
-  int pos;
-  SWELL_InternalObjectHeader_File *file=(SWELL_InternalObjectHeader_File*)hFile;
-  if (!file || file->hdr.type != INTERNAL_OBJECT_FILE || !file->fp || (pos=ftell(file->fp))==-1) { if (high) *high=0xffffffff; return 0xffffffff; }
-  if (high) *high=0;
-  return (DWORD)pos;
-}
-
-DWORD GetFileSize(HANDLE hFile, DWORD *high)
-{
-  SWELL_InternalObjectHeader_File *file=(SWELL_InternalObjectHeader_File*)hFile;
-  if (!file || file->hdr.type != INTERNAL_OBJECT_FILE || !file->fp) { if (high) *high=0xffffffff; return 0xffffffff; }
-  
-  int a=ftell(file->fp);
-  fseek(file->fp,0,SEEK_END);
-  int ret=ftell(file->fp);
-  fseek(file->fp,a,SEEK_SET);
-  
-  if (high) *high=ret==-1 ? 0xffffffff: 0;
-  return (DWORD)ret;
-}
-
-
-
-BOOL WriteFile(HANDLE hFile,void *buf, DWORD len, DWORD *lenOut, void *ovl)
-{
-  SWELL_InternalObjectHeader_File *file=(SWELL_InternalObjectHeader_File*)hFile;
-  if (!file || file->hdr.type != INTERNAL_OBJECT_FILE || !file->fp || !buf || !len) return FALSE;
-  int lo=fwrite(buf,1,len,file->fp);
-  if (lenOut) *lenOut = lo;
-  return !!lo;
-}
-
-BOOL ReadFile(HANDLE hFile,void *buf, DWORD len, DWORD *lenOut, void *ovl)
-{
-  SWELL_InternalObjectHeader_File *file=(SWELL_InternalObjectHeader_File*)hFile;
-  if (!file || file->hdr.type != INTERNAL_OBJECT_FILE || !file->fp || !buf || !len) return FALSE;
-  int lo=fread(buf,1,len,file->fp);
-  if (lenOut) *lenOut = lo;
-  return !!lo;
-}
-
 BOOL WinOffsetRect(LPRECT lprc, int dx, int dy)
 {
   if(!lprc) return 0;
@@ -927,7 +866,7 @@ DWORD GetModuleFileName(HINSTANCE hInst, char *fn, DWORD nSize)
     sprintf(tmp,"/proc/%d/exe",getpid());
     int sz=readlink(tmp,fn,nSize);
     if (sz<0)sz=0;
-    else if (sz>=nSize)sz=nSize-1;
+    else if ((DWORD)sz>=nSize)sz=nSize-1;
     fn[sz]=0;
     return sz;
   }
@@ -987,7 +926,7 @@ void GetTempPath(int bufsz, char *buf)
   size_t len = strlen(buf);
   if (!len || buf[len-1] != '/')
   {
-    if (len > bufsz-2) len = bufsz-2;
+    if (len > (size_t)bufsz-2) len = bufsz-2;
 
     buf[len] = '/';
     buf[len+1]=0;
@@ -996,6 +935,7 @@ void GetTempPath(int bufsz, char *buf)
 
 const char *g_swell_appname;
 char *g_swell_defini;
+const char *g_swell_fontpangram;
 
 void *SWELL_ExtendedAPI(const char *key, void *v)
 {
@@ -1005,8 +945,30 @@ void *SWELL_ExtendedAPI(const char *key, void *v)
     free(g_swell_defini);
     g_swell_defini = v ? strdup((const char *)v) : NULL;
 
+    #ifndef SWELL_TARGET_OSX
+    char buf[128];
+    GetPrivateProfileString(".swell","max_open_files","",buf,sizeof(buf),"");
+    if (!buf[0])
+      WritePrivateProfileString(".swell","max_open_files","auto // (default is max of default or 16384)","");
+
+    struct rlimit rl = {0,};
+    getrlimit(RLIMIT_NOFILE,&rl); 
+
+    const int orig_n = atoi(buf);
+    rlim_t n = orig_n > 0 ? (rlim_t) orig_n : 16384;
+    if (n > rl.rlim_max) n = rl.rlim_max;
+    if (orig_n > 0 ? (n != rl.rlim_cur) : (n > rl.rlim_cur))
+    {
+      rl.rlim_cur = n;
+      setrlimit(RLIMIT_NOFILE,&rl); 
+      #ifdef _DEBUG
+        getrlimit(RLIMIT_NOFILE,&rl); 
+        printf("applied rlimit %d/%d\n",(int)rl.rlim_cur,(int)rl.rlim_max);
+      #endif
+    }
+    #endif
+
     #ifdef SWELL_TARGET_GDK
-      char buf[128];
       GetPrivateProfileString(".swell","ui_scale","",buf,sizeof(buf),"");
       if (buf[0])
       {
@@ -1024,6 +986,10 @@ void *SWELL_ExtendedAPI(const char *key, void *v)
         WritePrivateProfileString(".swell","ui_scale","1.0 // scales the sizes in libSwell.colortheme","");
       }
     #endif
+  }
+  else if (!strcmp(key,"FONTPANGRAM"))
+  {
+    g_swell_fontpangram = (const char *)v;
   }
 #ifndef SWELL_TARGET_OSX
   else if (!strcmp(key,"FULLSCREEN") || !strcmp(key,"-FULLSCREEN"))

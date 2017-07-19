@@ -1,5 +1,5 @@
-/* Cockos SWELL (Simple/Small Win32 Emulation Layer for Linux)
-   Copyright (C) 2006-2007, Cockos, Inc.
+/* Cockos SWELL (Simple/Small Win32 Emulation Layer for Linux/OSX)
+   Copyright (C) 2006 and later, Cockos, Inc.
 
     This software is provided 'as-is', without any express or implied
     warranty.  In no event will the authors be held liable for any damages
@@ -54,7 +54,7 @@ void HMENU__::freeMenuItem(void *p)
 {
   MENUITEMINFO *inf = (MENUITEMINFO *)p;
   if (!inf) return;
-  delete inf->hSubMenu;
+  if (inf->hSubMenu) inf->hSubMenu->Release();
   if (inf->fType == MFT_STRING) free(inf->dwTypeData);
   free(inf);
 }
@@ -64,7 +64,7 @@ static MENUITEMINFO *GetMenuItemByID(HMENU menu, int id, bool searchChildren=tru
   if (!menu) return 0;
   int x;
   for (x = 0; x < menu->items.GetSize(); x ++)
-    if (menu->items.Get(x)->wID == id) return menu->items.Get(x);
+    if (menu->items.Get(x)->wID == (UINT)id) return menu->items.Get(x);
 
   if (searchChildren) for (x = 0; x < menu->items.GetSize(); x ++)
   { 
@@ -157,7 +157,7 @@ HMENU CreatePopupMenuEx(const char *title)
 
 void DestroyMenu(HMENU hMenu)
 {
-  delete hMenu;
+  if (hMenu) hMenu->Release();
 }
 
 int AddMenuItem(HMENU hMenu, int pos, const char *name, int tagid)
@@ -189,7 +189,7 @@ bool DeleteMenu(HMENU hMenu, int idx, int flag)
     int cnt=0;
     for (x=0;x<hMenu->items.GetSize(); x ++)
     {
-      if (!hMenu->items.Get(x)->hSubMenu && hMenu->items.Get(x)->wID == idx)
+      if (!hMenu->items.Get(x)->hSubMenu && hMenu->items.Get(x)->wID == (UINT)idx)
       {
         hMenu->items.Delete(x--,true,HMENU__::freeMenuItem);
         cnt++;
@@ -215,7 +215,7 @@ BOOL SetMenuItemInfo(HMENU hMenu, int pos, BOOL byPos, MENUITEMINFO *mi)
   
   if ((mi->fMask & MIIM_SUBMENU) && mi->hSubMenu != item->hSubMenu)
   {  
-    delete item->hSubMenu;
+    if (item->hSubMenu) item->hSubMenu->Release();
     item->hSubMenu = mi->hSubMenu;
   } 
   if (mi->fMask & MIIM_TYPE)
@@ -263,7 +263,7 @@ BOOL GetMenuItemInfo(HMENU hMenu, int pos, BOOL byPos, MENUITEMINFO *mi)
 void SWELL_InsertMenu(HMENU menu, int pos, unsigned int flag, UINT_PTR idx, const char *str)
 {
   MENUITEMINFO mi={sizeof(mi),MIIM_ID|MIIM_STATE|MIIM_TYPE,MFT_STRING,
-    (flag & ~MF_BYPOSITION),(flag&MF_POPUP) ? 0 : (int)idx,NULL,NULL,NULL,0,(char *)str};
+    (flag & ~MF_BYPOSITION),(flag&MF_POPUP) ? 0 : (UINT)idx,NULL,NULL,NULL,0,(char *)str};
   
   if (flag&MF_POPUP) 
   {
@@ -296,7 +296,7 @@ void InsertMenuItem(HMENU hMenu, int pos, BOOL byPos, MENUITEMINFO *mi)
   if (!byPos) 
   {
     int x;
-    for (x=0;x<ni && hMenu->items.Get(x)->wID != pos; x++);
+    for (x=0;x<ni && hMenu->items.Get(x)->wID != (UINT)pos; x++);
     pos = x;
   }
   if (pos < 0 || pos > ni) pos=ni; 
@@ -472,7 +472,7 @@ static LRESULT WINAPI submenuWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
           HPEN pen2=CreatePen(PS_SOLID,0,g_swell_ctheme.menu_hilight);
           HGDIOBJ oldbr = SelectObject(ps.hdc,br);
           HGDIOBJ oldpen = SelectObject(ps.hdc,pen2);
-          Rectangle(ps.hdc,cr.left,cr.top,cr.right-1,cr.bottom-1);
+          Rectangle(ps.hdc,cr.left,cr.top,cr.right,cr.bottom);
           SetBkMode(ps.hdc,TRANSPARENT);
           HMENU__ *menu = (HMENU__*)GetWindowLongPtr(hwnd,GWLP_USERDATA);
           int x;
@@ -726,14 +726,23 @@ static LRESULT WINAPI submenuWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
       {
         HMENU__ *menu = (HMENU__*)GetWindowLongPtr(hwnd,GWLP_USERDATA);
         int l = menu->sel_vis;
-        for (int i= wParam == VK_UP ? 0 : 9; i>=0 && l>0; i--) while (l > 0)
+        for (int i= wParam == VK_UP ? 0 : 9; i>=0; i--) 
         {
-          MENUITEMINFO *inf = menu->items.Get(--l);
-          if (!inf) break; 
-          if (!(inf->fState & MF_GRAYED) && inf->fType != MFT_SEPARATOR) 
+          int mc = menu->items.GetSize();
+          while (mc--)
           {
-            menu->sel_vis=l;
-            break;
+            if (l<1)
+            {
+              if (wParam != VK_UP) break;
+              l = menu->items.GetSize();
+            }
+            MENUITEMINFO *inf = menu->items.Get(--l);
+            if (!inf) break; 
+            if (!(inf->fState & MF_GRAYED) && inf->fType != MFT_SEPARATOR) 
+            {
+              menu->sel_vis=l;
+              break;
+            }
           }
         }
         if (menu->sel_vis < hwnd->m_extra[0])
@@ -745,14 +754,24 @@ static LRESULT WINAPI submenuWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
         HMENU__ *menu = (HMENU__*)GetWindowLongPtr(hwnd,GWLP_USERDATA);
         int l = menu->sel_vis;
         const int n =menu->items.GetSize()-1;
-        for (int i = wParam == VK_DOWN ? 0 : 9; i>=0 && l<n; i--) while (l < n)
+        for (int i = wParam == VK_DOWN ? 0 : 9; i>=0; i--) 
         {
-          MENUITEMINFO *inf = menu->items.Get(++l);
-          if (!inf) break; 
-          if (!(inf->fState & MF_GRAYED) && inf->fType != MFT_SEPARATOR) 
+          int mc = n+1;
+          while (mc--)
           {
-            menu->sel_vis=l;
-            break;
+            if (l>=n)
+            {
+              if (wParam != VK_DOWN) break;
+              l=-1;
+              hwnd->m_extra[0]=0;
+            }
+            MENUITEMINFO *inf = menu->items.Get(++l);
+            if (!inf) break; 
+            if (!(inf->fState & MF_GRAYED) && inf->fType != MFT_SEPARATOR) 
+            {
+              menu->sel_vis=l;
+              break;
+            }
           }
         }
         InvalidateRect(hwnd,NULL,FALSE);
@@ -831,7 +850,7 @@ static LRESULT WINAPI submenuWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
               }
             }
 
-            if (*p > 0 && toupper(*p) == wParam)
+            if (*p > 0 && (WPARAM)toupper(*p) == wParam)
             {
               if (!matchcnt++)
               {
@@ -1000,6 +1019,8 @@ int TrackPopupMenu(HMENU hMenu, int flags, int xpos, int ypos, int resvd, HWND h
   if (!hMenu || m_trackingMenus.GetSize()) return 0;
 
   ReleaseCapture();
+
+  hMenu->Retain();
   m_trackingPar=hwnd;
   m_trackingFlags=flags;
   m_trackingRet=-1;
@@ -1045,6 +1066,8 @@ int TrackPopupMenu(HMENU hMenu, int flags, int xpos, int ypos, int resvd, HWND h
   
   if (hwnd) hwnd->Release();
 
+  hMenu->Release();
+
   return m_trackingRet>0?m_trackingRet:0;
 }
 
@@ -1054,7 +1077,7 @@ int TrackPopupMenu(HMENU hMenu, int flags, int xpos, int ypos, int resvd, HWND h
 void SWELL_Menu_AddMenuItem(HMENU hMenu, const char *name, int idx, unsigned int flags)
 {
   MENUITEMINFO mi={sizeof(mi),MIIM_ID|MIIM_STATE|MIIM_TYPE,MFT_STRING,
-    (flags)?MFS_GRAYED:0,idx,NULL,NULL,NULL,0,(char *)name};
+    (UINT)((flags)?MFS_GRAYED:0),(UINT)idx,NULL,NULL,NULL,0,(char *)name};
   if (!name)
   {
     mi.fType = MFT_SEPARATOR;

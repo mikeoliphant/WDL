@@ -94,6 +94,7 @@ private:
 	double	feedback;
 	WDL_TypedBuf<double> buffer;
 	int		bufidx;
+public:
   int __pad;
 
 } WDL_FIXALIGN;
@@ -139,6 +140,7 @@ private:
 	double	damp;
 	WDL_TypedBuf<double> buffer;
 	int		bufidx;
+public:
   int __pad;
 } WDL_FIXALIGN;
 

@@ -1,5 +1,5 @@
-/* Cockos SWELL (Simple/Small Win32 Emulation Layer for Losers (who use OS X))
-   Copyright (C) 2006-2007, Cockos, Inc.
+/* Cockos SWELL (Simple/Small Win32 Emulation Layer for Linux/OSX)
+   Copyright (C) 2006 and later, Cockos, Inc.
 
     This software is provided 'as-is', without any express or implied
     warranty.  In no event will the authors be held liable for any damages
@@ -36,6 +36,10 @@
 #include <dirent.h>
 #include <time.h>
 
+#include "../lineparse.h"
+#define WDL_HASSTRINGS_EXPORT static
+#include "../has_strings.h"
+
 static const char *BFSF_Templ_dlgid;
 static DLGPROC BFSF_Templ_dlgproc;
 static struct SWELL_DialogResourceIndex *BFSF_Templ_reshead;
@@ -55,7 +59,7 @@ public:
   BrowseFile_State(const char *_cap, const char *_idir, const char *_ifile, const char *_el, modeEnum _mode, char *_fnout, int _fnout_sz) :
     caption(_cap), initialdir(_idir), initialfile(_ifile), extlist(_el), mode(_mode), 
     sortcol(0), sortrev(0),
-    fnout(_fnout), fnout_sz(_fnout_sz), viewlist(16384)
+    fnout(_fnout), fnout_sz(_fnout_sz), viewlist_store(16384), viewlist(4096)
   {
   }
   ~BrowseFile_State()
@@ -79,27 +83,87 @@ public:
     time_t date;
     char *name;
     int type; // 1 = directory, 2 = file
+
+    void format_date(char *buf, int bufsz)
+    {
+      *buf=0;
+      if (date > 0 && date < WDL_INT64_CONST(0x793406fff))
+      {
+        struct tm *a=localtime(&date);
+        if (a) strftime(buf,bufsz,"%c",a);
+      }
+    }
+
+    void format_size(char *buf, int bufsz)
+    {
+      if (type == 1)
+      {
+        lstrcpyn_safe(buf,"<DIR>",bufsz);
+      }
+      else
+      {
+        static const char *tab[]={ "bytes","KB","MB","GB" };
+        int lf=0;
+        WDL_INT64 s=size;
+        if (s<1024)
+        {
+          snprintf(buf,bufsz,"%d %s",(int)s,tab[0]);
+        }
+        else
+        {
+          int w = 1;
+          do {  w++; lf = (int)(s&1023); s/=1024; } while (s >= 1024 && w<4);
+          snprintf(buf,bufsz,"%d.%d %s",(int)s,(int)((lf*10.0)/1024.0+0.5),tab[w-1]);
+        }
+      }
+    }
+
+    char *format_all(char *buf, int bufsz)
+    {
+      char dstr[128],sstr[128];
+      format_date(dstr,sizeof(dstr));
+      format_size(sstr,sizeof(sstr));
+      snprintf(buf,bufsz,"%s\t%s\t%s",WDL_get_filepart(name),dstr,sstr);
+      return buf;
+    }
+
   };
 
   void viewlist_clear()
   {
-    rec *l = viewlist.Get();
-    const int n = viewlist.GetSize();
+    rec *l = viewlist_store.Get();
+    const int n = viewlist_store.GetSize();
     for (int x = 0; x < n; x ++) free(l[x].name);
-    viewlist.Resize(0);
+    viewlist_store.Resize(0);
+    viewlist.Empty();
   }
-  WDL_TypedBuf<rec> viewlist;
-  void viewlist_sort()
+  WDL_TypedBuf<rec> viewlist_store;
+  WDL_PtrList<rec> viewlist;
+  void viewlist_sort(const char *filter)
   {
+    if (filter)
+    {
+      viewlist.Empty();
+      LineParser lp;
+      const bool no_filter = !*filter || !WDL_makeSearchFilter(filter,&lp);
+      for (int x=0;x<viewlist_store.GetSize();x++) 
+      {
+        rec *r = viewlist_store.Get()+x;
+        char tmp[512];
+        if (no_filter || WDL_hasStrings(r->format_all(tmp,sizeof(tmp)),&lp))
+          viewlist.Add(r);
+      }
+    }
     s_sortrev = sortrev;
-    qsort(viewlist.Get(), viewlist.GetSize(),sizeof(rec), 
-      sortcol == 1 ? sortFunc_sz :
-      sortcol == 2 ? sortFunc_date : 
-      sortFunc_fn);
+    if (viewlist.GetSize()>1)
+      qsort(viewlist.GetList(), viewlist.GetSize(),sizeof(rec*), 
+        sortcol == 1 ? sortFunc_sz :
+        sortcol == 2 ? sortFunc_date : 
+        sortFunc_fn);
   }
   static int sortFunc_fn(const void *_a, const void *_b)
   {
-    const rec *a = (const rec *)_a, *b = (const rec *)_b;
+    const rec *a = *(const rec * const*)_a, *b = *(const rec * const*)_b;
     int d = a->type - b->type;
     if (d) return d;
     d = stricmp(a->name,b->name);
@@ -107,7 +171,7 @@ public:
   }
   static int sortFunc_date(const void *_a, const void *_b)
   {
-    const rec *a = (const rec *)_a, *b = (const rec *)_b;
+    const rec *a = *(const rec * const*)_a, *b = *(const rec * const*)_b;
     if (a->date != b->date) return s_sortrev ? (a->date>b->date?-1:1) : (a->date>b->date?1:-1);
     return stricmp(a->name,b->name);
   }
@@ -158,7 +222,7 @@ public:
               const char *nw = f;
               while (nw < nf && *nw != '*') nw++;
 
-              if ((nw!=nf || strlen(ent->d_name) == nw-f) && !strncasecmp(ent->d_name,f,nw-f)) 
+              if ((nw!=nf || f+strlen(ent->d_name) == nw) && !strncasecmp(ent->d_name,f,nw-f)) 
               {
                 // matched leading text
                 if (nw == nf) break;
@@ -171,7 +235,7 @@ public:
               f++;
               if (!*f || *f == ';' || (*f == '.' && f[1] == '*')) break;
               size_t l = strlen(ent->d_name);
-              if (l > nf-f && !strncasecmp(ent->d_name + l - (nf-f), f,nf-f)) break;
+              if (f+l > nf && !strncasecmp(ent->d_name + l - (nf-f), f,nf-f)) break;
             }
             f = nf;
             while (*f == ';') f++;
@@ -183,7 +247,7 @@ public:
         stat64(tmp,&st);
       
         rec r = { st.st_size, st.st_mtime, strdup(ent->d_name), is_dir?1:2 } ;
-        viewlist.Add(&r,1);
+        viewlist_store.Add(&r,1);
       }
     }
     // sort viewlist
@@ -196,6 +260,8 @@ char BrowseFile_State::s_sortrev;
 
 static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
+  enum { IDC_EDIT=0x100, IDC_LABEL, IDC_CHILD, IDC_DIR, IDC_LIST, IDC_EXT, IDC_PARENTBUTTON, IDC_FILTER };
+  enum { WM_UPD=WM_USER+100 };
   const int maxPathLen = 2048;
   const char *multiple_files = "(multiple files)";
   switch (uMsg)
@@ -214,14 +280,16 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
 
         SWELL_MakeSetCurParms(1,1,0,0,hwnd,false,false);
 
-        HWND edit = SWELL_MakeEditField(0x100, 0,0,0,0,  0);
+        HWND edit = SWELL_MakeEditField(IDC_EDIT, 0,0,0,0,  0);
         SWELL_MakeButton(0,
               parms->mode == BrowseFile_State::OPENDIR ? "Choose directory" :
               parms->mode == BrowseFile_State::SAVE ? "Save" : "Open",
               IDOK,0,0,0,0, 0);
 
         SWELL_MakeButton(0, "Cancel", IDCANCEL,0,0,0,0, 0);
-        HWND dir = SWELL_MakeCombo(0x103, 0,0,0,0, 0);
+        HWND dir = SWELL_MakeCombo(IDC_DIR, 0,0,0,0, 0);
+        SWELL_MakeButton(0, "..", IDC_PARENTBUTTON, 0,0,0,0, 0);
+        SWELL_MakeEditField(IDC_FILTER, 0,0,0,0,  0);
 
         const char *ent = parms->mode == BrowseFile_State::OPENDIR ? "dir_browser" : "file_browser";
         char tmp[128];
@@ -241,7 +309,7 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
           c3=SWELL_UI_SCALE(140);
         }
 
-        HWND list = SWELL_MakeControl("",0x104,"SysListView32",LVS_REPORT|LVS_SHOWSELALWAYS|
+        HWND list = SWELL_MakeControl("",IDC_LIST,"SysListView32",LVS_REPORT|LVS_SHOWSELALWAYS|
               (parms->mode == BrowseFile_State::OPENMULTI ? 0 : LVS_SINGLESEL)|
               LVS_OWNERDATA|WS_BORDER|WS_TABSTOP,0,0,0,0,0);
         if (list)
@@ -261,7 +329,7 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
           hi.fmt = parms->sortrev ? HDF_SORTDOWN : HDF_SORTUP;
           Header_SetItem(hdr,parms->sortcol,&hi);
         }
-        HWND extlist = (parms->extlist && *parms->extlist) ? SWELL_MakeCombo(0x105, 0,0,0,0, CBS_DROPDOWNLIST) : NULL;
+        HWND extlist = (parms->extlist && *parms->extlist) ? SWELL_MakeCombo(IDC_EXT, 0,0,0,0, CBS_DROPDOWNLIST) : NULL;
         if (extlist)
         {
           const char *p = parms->extlist;
@@ -277,12 +345,12 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
           SendMessage(extlist,CB_SETCURSEL,0,0);
         }
 
-        SWELL_MakeLabel(-1,parms->mode == BrowseFile_State::OPENDIR ? "Directory: " : "File:",0x101, 0,0,0,0, 0); 
+        SWELL_MakeLabel(-1,parms->mode == BrowseFile_State::OPENDIR ? "Directory: " : "File:",IDC_LABEL, 0,0,0,0, 0); 
         
         if (BFSF_Templ_dlgid && BFSF_Templ_dlgproc)
         {
           HWND dlg = SWELL_CreateDialog(BFSF_Templ_reshead, BFSF_Templ_dlgid, hwnd, BFSF_Templ_dlgproc, 0);
-          if (dlg) SetWindowLong(dlg,GWL_ID,0x102);
+          if (dlg) SetWindowLong(dlg,GWL_ID,IDC_CHILD);
           BFSF_Templ_dlgproc=0;
           BFSF_Templ_dlgid=0;
         }
@@ -293,24 +361,37 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
         {
           char buf[maxPathLen];
           const char *filepart = "";
-          if (parms->initialfile && *parms->initialfile && *parms->initialfile != '.') 
+          if (parms->initialfile && *parms->initialfile && strcmp(parms->initialfile,"."))
           { 
             lstrcpyn_safe(buf,parms->initialfile,sizeof(buf));
             char *p = (char *)WDL_get_filepart(buf);
-            if (p > buf) { p[-1]=0; filepart = p; }
+            if (p > buf) 
+            { 
+              p[-1]=0; 
+              filepart = p; 
+            }
+            else
+            {
+              filepart = parms->initialfile;
+              goto get_dir;
+            }
           }
-          else if (parms->initialdir && *parms->initialdir) 
+          else 
           {
-            lstrcpyn_safe(buf,parms->initialdir,sizeof(buf));
+get_dir:
+            if (parms->initialdir && *parms->initialdir && strcmp(parms->initialdir,".")) 
+            {
+              lstrcpyn_safe(buf,parms->initialdir,sizeof(buf));
+            }
+            else getcwd(buf,sizeof(buf));
           }
-          else getcwd(buf,sizeof(buf));
 
           SetWindowText(edit,filepart);
-          SendMessage(hwnd, WM_USER+100, 0x103, (LPARAM)buf);
+          SendMessage(hwnd, WM_UPD, IDC_DIR, (LPARAM)buf);
         }
 
         SetWindowPos(hwnd,NULL,x,y, w,h, flag);
-        SendMessage(hwnd,WM_USER+100,1,0); // refresh list
+        SendMessage(hwnd,WM_UPD,1,0);
         SendMessage(edit,EM_SETSEL,0,(LPARAM)-1);
         SetFocus(edit);
       }
@@ -322,7 +403,7 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
         {
           RECT r;
           GetWindowRect(hwnd,&r);
-          HWND list = GetDlgItem(hwnd,0x104);
+          HWND list = GetDlgItem(hwnd,IDC_LIST);
           const int c1 = ListView_GetColumnWidth(list,0);
           const int c2 = ListView_GetColumnWidth(list,1);
           const int c3 = ListView_GetColumnWidth(list,2);
@@ -333,14 +414,14 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
         }
       }
     break;
-    case WM_USER+100:
+    case WM_UPD:
       switch (wParam)
       {
-        case 0x103: // update directory combo box -- destroys buffer pointed to by lParam
+        case IDC_DIR: // update directory combo box -- destroys buffer pointed to by lParam
           if (lParam)
           {
             char *path = (char*)lParam;
-            HWND combo=GetDlgItem(hwnd,0x103);
+            HWND combo=GetDlgItem(hwnd,IDC_DIR);
             SendMessage(combo,CB_RESETCONTENT,0,0);
             WDL_remove_trailing_dirchars(path);
             while (path[0]) 
@@ -358,20 +439,24 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
           BrowseFile_State *parms = (BrowseFile_State *)GetWindowLongPtr(hwnd,GWLP_USERDATA);
           if (parms)
           {
+            SetDlgItemText(hwnd,IDC_FILTER,"");
+            KillTimer(hwnd,1);
+
             char buf[maxPathLen];
             const char *filt = NULL;
             buf[0]=0;
-            int a = (int) SendDlgItemMessage(hwnd,0x105,CB_GETCURSEL,0,0);
-            if (a>=0) filt = (const char *)SendDlgItemMessage(hwnd,0x105,CB_GETITEMDATA,a,0);
+            int a = (int) SendDlgItemMessage(hwnd,IDC_EXT,CB_GETCURSEL,0,0);
+            if (a>=0) filt = (const char *)SendDlgItemMessage(hwnd,IDC_EXT,CB_GETITEMDATA,a,0);
 
-            GetDlgItemText(hwnd,0x103,buf,sizeof(buf));
+            GetDlgItemText(hwnd,IDC_DIR,buf,sizeof(buf));
 
             if (buf[0]) parms->scan_path(buf, filt, parms->mode == BrowseFile_State::OPENDIR);
             else parms->viewlist_clear();
-            HWND list = GetDlgItem(hwnd,0x104);
+            HWND list = GetDlgItem(hwnd,IDC_LIST);
             ListView_SetItemCount(list, 0); // clear selection
+
+            parms->viewlist_sort("");
             ListView_SetItemCount(list, parms->viewlist.GetSize());
-            parms->viewlist_sort();
             ListView_RedrawItems(list,0, parms->viewlist.GetSize());
           }
         }
@@ -401,7 +486,7 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
         SetWindowPos(GetDlgItem(hwnd,IDCANCEL), NULL, xpos -= cancelbutw + xborder, ypos, cancelbutw,buth, SWP_NOZORDER|SWP_NOACTIVATE);
         SetWindowPos(GetDlgItem(hwnd,IDOK), NULL, xpos -= okbutw + xborder, ypos, okbutw,buth, SWP_NOZORDER|SWP_NOACTIVATE);
 
-        HWND emb = GetDlgItem(hwnd,0x102);
+        HWND emb = GetDlgItem(hwnd,IDC_CHILD);
         if (emb)
         {
           RECT sr;
@@ -411,40 +496,91 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
           ShowWindow(emb,SW_SHOWNA);
         }
 
-        HWND filt = GetDlgItem(hwnd,0x105);
+        HWND filt = GetDlgItem(hwnd,IDC_EXT);
         if (filt)
         {
           SetWindowPos(filt, NULL, xborder*2 + fnlblw, ypos -= fnh + yborder, r.right-fnlblw-xborder*3, fnh, SWP_NOZORDER|SWP_NOACTIVATE);
         }
 
-        SetWindowPos(GetDlgItem(hwnd,0x100), NULL, xborder*2 + fnlblw, ypos -= fnh + yborder, r.right-fnlblw-xborder*3, fnh, SWP_NOZORDER|SWP_NOACTIVATE);
-        SetWindowPos(GetDlgItem(hwnd,0x101), NULL, xborder, ypos, fnlblw, fnh, SWP_NOZORDER|SWP_NOACTIVATE);
-        SetWindowPos(GetDlgItem(hwnd,0x103), NULL, xborder, yborder/2, r.right-xborder*2, g_swell_ctheme.combo_height, SWP_NOZORDER|SWP_NOACTIVATE);
-  
-        SetWindowPos(GetDlgItem(hwnd,0x104), NULL, xborder, g_swell_ctheme.combo_height+yborder, r.right-xborder*2, ypos - (g_swell_ctheme.combo_height+yborder) - yborder, SWP_NOZORDER|SWP_NOACTIVATE);
+        SetWindowPos(GetDlgItem(hwnd,IDC_EDIT), NULL, xborder*2 + fnlblw, ypos -= fnh + yborder, r.right-fnlblw-xborder*3, fnh, SWP_NOZORDER|SWP_NOACTIVATE);
+        SetWindowPos(GetDlgItem(hwnd,IDC_LABEL), NULL, xborder, ypos, fnlblw, fnh, SWP_NOZORDER|SWP_NOACTIVATE);
+        const int comboh = g_swell_ctheme.combo_height;
+        const int filterw = wdl_max(r.right/8, SWELL_UI_SCALE(50));
+        SetWindowPos(GetDlgItem(hwnd,IDC_DIR), NULL, xborder, yborder/2, 
+            r.right-xborder*4 - comboh - filterw, comboh, SWP_NOZORDER|SWP_NOACTIVATE);
+
+        SetWindowPos(GetDlgItem(hwnd,IDC_PARENTBUTTON),NULL,
+            r.right-xborder*2-comboh - filterw,yborder/2,
+            comboh,comboh,SWP_NOZORDER|SWP_NOACTIVATE);
+
+        SetWindowPos(GetDlgItem(hwnd,IDC_FILTER),NULL,
+            r.right-xborder-filterw,yborder/2 + (comboh-fnh)/2,
+            filterw,fnh,SWP_NOZORDER|SWP_NOACTIVATE);
+
+        SetWindowPos(GetDlgItem(hwnd,IDC_LIST), NULL, xborder, g_swell_ctheme.combo_height+yborder, r.right-xborder*2, ypos - (g_swell_ctheme.combo_height+yborder) - yborder, SWP_NOZORDER|SWP_NOACTIVATE);
+      }
+    break;
+    case WM_TIMER:
+      if (wParam == 1)
+      {
+        KillTimer(hwnd,1);
+        BrowseFile_State *parms = (BrowseFile_State *)GetWindowLongPtr(hwnd,GWLP_USERDATA);
+        if (parms)
+        {
+          char buf[128];
+          GetDlgItemText(hwnd,IDC_FILTER,buf,sizeof(buf));
+          parms->viewlist_sort(buf);
+          HWND list = GetDlgItem(hwnd,IDC_LIST);
+          ListView_SetItemCount(list, parms->viewlist.GetSize());
+          ListView_RedrawItems(list,0, parms->viewlist.GetSize());
+        }
       }
     break;
     case WM_COMMAND:
       switch (LOWORD(wParam))
       {
-        case 0x105:
-          if (HIWORD(wParam) == CBN_SELCHANGE)
+        case IDC_FILTER:
+          if (HIWORD(wParam) == EN_CHANGE)
           {
-            SendMessage(hwnd,WM_USER+100,1,0); // refresh list
+            KillTimer(hwnd,1);
+            SetTimer(hwnd,1,250,NULL);
           }
         return 0;
-        case 0x103:
+        case IDC_EXT:
           if (HIWORD(wParam) == CBN_SELCHANGE)
           {
-            SendMessage(hwnd,WM_USER+100,1,0); // refresh list
+            SendMessage(hwnd,WM_UPD,1,0);
+          }
+        return 0;
+        case IDC_PARENTBUTTON:
+          {
+            int a = (int) SendDlgItemMessage(hwnd,IDC_DIR,CB_GETCURSEL,0,0);
+            if (a>=0) 
+            {
+              SendDlgItemMessage(hwnd,IDC_DIR,CB_SETCURSEL,a+1,0);
+            }
+            else
+            {
+              char buf[maxPathLen];
+              GetDlgItemText(hwnd,IDC_DIR,buf,sizeof(buf));
+              WDL_remove_filepart(buf);
+              SetDlgItemText(hwnd,IDC_DIR,buf);
+            }
+            SendMessage(hwnd,WM_UPD,1,0);
+          }
+        return 0;
+        case IDC_DIR:
+          if (HIWORD(wParam) == CBN_SELCHANGE)
+          {
+            SendMessage(hwnd,WM_UPD,1,0);
           }
         return 0;
         case IDCANCEL: EndDialog(hwnd,0); return 0;
         case IDOK: 
           {
             char buf[maxPathLen], msg[2048];
-            GetDlgItemText(hwnd,0x103,buf,sizeof(buf));
-            if (GetFocus() == GetDlgItem(hwnd,0x103))
+            GetDlgItemText(hwnd,IDC_DIR,buf,sizeof(buf));
+            if (GetFocus() == GetDlgItem(hwnd,IDC_DIR))
             {
               DIR *dir = opendir(buf);
               if (!dir)
@@ -455,8 +591,8 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
               }
               closedir(dir);
 
-              SendMessage(hwnd,WM_USER+100,1,0); // refresh list
-              HWND e = GetDlgItem(hwnd,0x100);
+              SendMessage(hwnd,WM_UPD,1,0);
+              HWND e = GetDlgItem(hwnd,IDC_EDIT);
               SendMessage(e,EM_SETSEL,0,(LPARAM)-1);
               SetFocus(e);
               return 0;
@@ -469,20 +605,20 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
               if (buflen > sizeof(buf)-2) buflen = sizeof(buf)-2;
               if (buf[buflen-1]!='/') { buf[buflen++] = '/'; buf[buflen]=0; }
             }
-            GetDlgItemText(hwnd,0x100,msg,sizeof(msg));
+            GetDlgItemText(hwnd,IDC_EDIT,msg,sizeof(msg));
 
             BrowseFile_State *parms = (BrowseFile_State *)GetWindowLongPtr(hwnd,GWLP_USERDATA);
             int cnt;
-            if (parms->mode == BrowseFile_State::OPENMULTI && (cnt=ListView_GetSelectedCount(GetDlgItem(hwnd,0x104)))>1 && (!*msg || !strcmp(msg,multiple_files)))
+            if (parms->mode == BrowseFile_State::OPENMULTI && (cnt=ListView_GetSelectedCount(GetDlgItem(hwnd,IDC_LIST)))>1 && (!*msg || !strcmp(msg,multiple_files)))
             {
-              HWND list = GetDlgItem(hwnd,0x104);
+              HWND list = GetDlgItem(hwnd,IDC_LIST);
               WDL_TypedBuf<char> fs;
               fs.Set(buf,strlen(buf)+1);
               int a = ListView_GetNextItem(list,-1,LVNI_SELECTED);
               while (a != -1 && fs.GetSize() < 4096*4096 && cnt--)
               {
                 if (a < 0 || a >= parms->viewlist.GetSize()) break;
-                const struct BrowseFile_State::rec *rec = parms->viewlist.Get()+a;
+                const struct BrowseFile_State::rec *rec = parms->viewlist.Get(a);
                 if (!rec) break;
 
                 fs.Add(rec->name,strlen(rec->name)+1);
@@ -502,11 +638,11 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
               {
                 if (msg[1] == '.') 
                 {
-                  int a = (int) SendDlgItemMessage(hwnd,0x103,CB_GETCURSEL,0,0);
-                  if (a>=0) SendDlgItemMessage(hwnd,0x103,CB_SETCURSEL,a+1,0);
+                  int a = (int) SendDlgItemMessage(hwnd,IDC_DIR,CB_GETCURSEL,0,0);
+                  if (a>=0) SendDlgItemMessage(hwnd,IDC_DIR,CB_SETCURSEL,a+1,0);
                 }
-                SetDlgItemText(hwnd,0x100,"");
-                SendMessage(hwnd,WM_USER+100,1,0); // refresh list
+                SetDlgItemText(hwnd,IDC_EDIT,"");
+                SendMessage(hwnd,WM_UPD,1,0);
                 return 0;
               }
               else if (msg[0] == '/') lstrcpyn_safe(buf,msg,sizeof(buf));
@@ -520,6 +656,7 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
                  else if (msg[0])
                  {
                    // navigate to directory if filepart set
+treatAsDir:
                    DIR *dir = opendir(buf);
                    if (!dir) 
                    {
@@ -530,9 +667,9 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
                    }
                    if (!dir) { MessageBox(hwnd,"Error creating directory","Error",MB_OK); return 0; }
                    closedir(dir);
-                   SendMessage(hwnd, WM_USER+100, 0x103, (LPARAM)buf);
-                   SetDlgItemText(hwnd,0x100,"");
-                   SendMessage(hwnd,WM_USER+100,1,0); // refresh list
+                   SendMessage(hwnd, WM_UPD, IDC_DIR, (LPARAM)buf);
+                   SetDlgItemText(hwnd,IDC_EDIT,"");
+                   SendMessage(hwnd,WM_UPD,1,0);
 
                    return 0;
                  }
@@ -552,11 +689,12 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
                    if (dir)
                    {
                      closedir(dir);
-                     SendMessage(hwnd, WM_USER+100, 0x103, (LPARAM)buf);
-                     SetDlgItemText(hwnd,0x100,"");
-                     SendMessage(hwnd,WM_USER+100,1,0); // refresh list
+                     SendMessage(hwnd, WM_UPD, IDC_DIR, (LPARAM)buf);
+                     SetDlgItemText(hwnd,IDC_EDIT,"");
+                     SendMessage(hwnd,WM_UPD,1,0);
                      return 0;
                    }
+                   if (buf[strlen(buf)-1] == '/') goto treatAsDir;
                    if (!stat64(buf,&st))
                    {
                      snprintf(msg,sizeof(msg),"File exists:\r\n\r\n%s\r\n\r\nOverwrite?",buf);
@@ -573,9 +711,9 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
                    if (dir)
                    {
                      closedir(dir);
-                     SendMessage(hwnd, WM_USER+100, 0x103, (LPARAM)buf);
-                     SetDlgItemText(hwnd,0x100,"");
-                     SendMessage(hwnd,WM_USER+100,1,0); // refresh list
+                     SendMessage(hwnd, WM_UPD, IDC_DIR, (LPARAM)buf);
+                     SetDlgItemText(hwnd,IDC_EDIT,"");
+                     SendMessage(hwnd,WM_UPD,1,0);
                      return 0;
                    }
                    if (stat64(buf,&st))
@@ -610,9 +748,9 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
           BrowseFile_State *parms = (BrowseFile_State *)GetWindowLongPtr(hwnd,GWLP_USERDATA);
           NMLVDISPINFO *lpdi = (NMLVDISPINFO*) lParam;
           const int idx=lpdi->item.iItem;
-          if (l->idFrom == 0x104 && parms && idx >=0 && idx < parms->viewlist.GetSize())
+          if (l->idFrom == IDC_LIST && parms)
           {
-            struct BrowseFile_State::rec *rec = parms->viewlist.Get()+idx;
+            struct BrowseFile_State::rec *rec = parms->viewlist.Get(idx);
             if (rec && rec->name)
             {
               if (lpdi->item.mask&LVIF_TEXT) 
@@ -623,37 +761,10 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
                     lstrcpyn_safe(lpdi->item.pszText,rec->name,lpdi->item.cchTextMax);
                   break;
                   case 1:
-                    if (rec->type == 1)
-                    {
-                      lstrcpyn_safe(lpdi->item.pszText,"<DIR>",lpdi->item.cchTextMax);
-                    }
-                    else
-                    {
-                      static const char *tab[]={ "bytes","KB","MB","GB" };
-                      int lf=0;
-                      WDL_INT64 s=rec->size;
-                      if (s<1024)
-                      {
-                        snprintf(lpdi->item.pszText,lpdi->item.cchTextMax,"%d %s  ",(int)s,tab[0]);
-                        break;
-                      }
-                      
-                      int w = 1;
-                      do {  w++; lf = (int)(s&1023); s/=1024; } while (s >= 1024 && w<4);
-                      snprintf(lpdi->item.pszText,lpdi->item.cchTextMax,"%d.%d %s  ",(int)s,(int)((lf*10.0)/1024.0+0.5),tab[w-1]);
-                    }
+                    rec->format_size(lpdi->item.pszText,lpdi->item.cchTextMax);
                   break;
                   case 2:
-                    if (rec->date > 0 && rec->date < WDL_INT64_CONST(0x793406fff))
-                    {
-                      struct tm *a=localtime(&rec->date);
-                      if (a)
-                      {
-                        char str[512];
-                        strftime(str,sizeof(str),"%c",a);
-                        lstrcpyn(lpdi->item.pszText, str,lpdi->item.cchTextMax);
-                      }
-                    }
+                    rec->format_date(lpdi->item.pszText,lpdi->item.cchTextMax);
                   break;
                 }
               }
@@ -666,19 +777,19 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
         else if (l->code == LVN_ITEMCHANGED)
         {
           const int selidx = ListView_GetNextItem(l->hwndFrom, -1, LVNI_SELECTED);
-          if (selidx>=0)
+          BrowseFile_State *parms = (BrowseFile_State *)GetWindowLongPtr(hwnd,GWLP_USERDATA);
+          if (selidx>=0 && parms)
           {
-            BrowseFile_State *parms = (BrowseFile_State *)GetWindowLongPtr(hwnd,GWLP_USERDATA);
-            if (parms && parms->mode == BrowseFile_State::OPENMULTI && ListView_GetSelectedCount(l->hwndFrom)>1)
+            if (parms->mode == BrowseFile_State::OPENMULTI && ListView_GetSelectedCount(l->hwndFrom)>1)
             {
-              SetDlgItemText(hwnd,0x100,multiple_files);
+              SetDlgItemText(hwnd,IDC_EDIT,multiple_files);
             }
             else
             {
-              struct BrowseFile_State::rec *rec = parms && selidx < parms->viewlist.GetSize() ? parms->viewlist.Get()+selidx : NULL;
+              struct BrowseFile_State::rec *rec = parms->viewlist.Get(selidx);
               if (rec)
               {
-                SetDlgItemText(hwnd,0x100,rec->name);
+                SetDlgItemText(hwnd,IDC_EDIT,rec->name);
               }
             }
           }
@@ -707,11 +818,30 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
           hi.fmt = parms->sortrev ? HDF_SORTDOWN : HDF_SORTUP;
           Header_SetItem(hdr,parms->sortcol,&hi);
 
-          parms->viewlist_sort();
+          parms->viewlist_sort(NULL);
           ListView_RedrawItems(l->hwndFrom,0, parms->viewlist.GetSize());
         }
       }
     break;
+    case WM_KEYDOWN:
+      if (lParam == FVIRTKEY && wParam == VK_F5)
+      {
+        SendMessage(hwnd,WM_UPD,1,0);
+        return 1;
+      }
+      else if (lParam == FVIRTKEY && wParam == VK_BACK && 
+               GetFocus() == GetDlgItem(hwnd,IDC_LIST))
+      {
+        SendMessage(hwnd,WM_COMMAND,IDC_PARENTBUTTON,0);
+        return 1;
+      }
+      else if (lParam == FVIRTKEY && wParam == VK_RETURN && 
+               GetFocus() == GetDlgItem(hwnd,IDC_LIST))
+      {
+        SendMessage(hwnd,WM_COMMAND,IDOK,0);
+        return 1;
+      }
+    return 0;
   }
   return 0;
 }
@@ -754,6 +884,7 @@ char *BrowseForFiles(const char *text, const char *initialdir,
 
 static LRESULT WINAPI swellMessageBoxProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
+  enum { IDC_LABEL=0x100 };
   const int button_spacing = 8;
   switch (uMsg)
   {
@@ -778,7 +909,7 @@ static LRESULT WINAPI swellMessageBoxProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
 
         SWELL_MakeSetCurParms(1,1,0,0,hwnd,false,false);
         RECT labsize = {0,0,300,20};
-        HWND lab = SWELL_MakeLabel(-1,parms[0] ? (const char *)parms[0] : "", 0x100, 0,0,10,10,SS_CENTER); //we'll resize this manually
+        HWND lab = SWELL_MakeLabel(-1,parms[0] ? (const char *)parms[0] : "", IDC_LABEL, 0,0,10,10,SS_CENTER); //we'll resize this manually
         HDC dc=GetDC(lab); 
         if (lab && parms[0])
         {
@@ -792,12 +923,13 @@ static LRESULT WINAPI swellMessageBoxProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
 
         int x;
         int button_height=0, button_total_w=0;;
+        const int bspace = SWELL_UI_SCALE(button_spacing);
         for (x = 0; x < nbuttons; x ++)
         {
           RECT r={0,0,35,12};
           DrawText(dc,buttons[x],-1,&r,DT_CALCRECT|DT_NOPREFIX|DT_SINGLELINE);
           button_sizes[x] = r.right-r.left + sc10;
-          button_total_w += button_sizes[x] + (x ? button_spacing : 0);
+          button_total_w += button_sizes[x] + (x ? bspace : 0);
           if (r.bottom-r.top+sc10 > button_height) button_height = r.bottom-r.top+sc10;
         }
 
@@ -806,8 +938,8 @@ static LRESULT WINAPI swellMessageBoxProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
         int xpos = labsize.right/2 - button_total_w/2;
         for (x = 0; x < nbuttons; x ++)
         {
-          SWELL_MakeButton(0,buttons[x],button_ids[x],xpos,labsize.bottom,button_sizes[x],button_height,0);
-          xpos += button_sizes[x] + button_spacing;
+          SWELL_MakeButton(!x,buttons[x],button_ids[x],xpos,labsize.bottom,button_sizes[x],button_height,0);
+          xpos += button_sizes[x] + bspace;
         }
 
         if (dc) ReleaseDC(lab,dc);
@@ -815,6 +947,7 @@ static LRESULT WINAPI swellMessageBoxProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
         SetWindowPos(hwnd,NULL,0,0,
               labsize.right + sc8*2,labsize.bottom + button_height + sc8,SWP_NOACTIVATE|SWP_NOZORDER|SWP_NOMOVE);
         if (lab) SetWindowPos(lab,NULL,sc8,0,labsize.right,labsize.bottom,SWP_NOACTIVATE|SWP_NOZORDER);
+        SetFocus(GetDlgItem(hwnd,button_ids[0]));
       }
     break;
     case WM_SIZE:
@@ -822,13 +955,13 @@ static LRESULT WINAPI swellMessageBoxProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
         RECT r;
         GetClientRect(hwnd,&r);
         HWND h = GetWindow(hwnd,GW_CHILD);
-        int n = 100;
-        int w[8];
+        int n = 10, w[8];
         HWND tab[8],lbl=NULL;
         int tabsz=0, bxwid=0, button_height=0;
-        while (h && n--) {
+        while (h && n-- && tabsz<8) 
+        {
           int idx = GetWindowLong(h,GWL_ID);
-          if (idx == IDCANCEL || idx == IDOK || idx == IDNO || idx == IDYES) 
+          if (idx == IDCANCEL || idx == IDOK || idx == IDNO || idx == IDYES || idx == IDRETRY) 
           { 
             RECT tr;
             GetClientRect(h,&tr);
@@ -836,26 +969,28 @@ static LRESULT WINAPI swellMessageBoxProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
             w[tabsz++] = tr.right - tr.left;
             button_height = tr.bottom-tr.top;
             bxwid += tr.right-tr.left;
-          } else if (idx==0x100) lbl=h;
+          } else if (idx==IDC_LABEL) lbl=h;
           h = GetWindow(h,GW_HWNDNEXT);
         }
-        const int sc8 = SWELL_UI_SCALE(8);
+        const int bspace = SWELL_UI_SCALE(button_spacing), sc8 = SWELL_UI_SCALE(8);
         if (lbl) SetWindowPos(h,NULL,sc8,0,r.right,r.bottom - sc8 - button_height,  SWP_NOZORDER|SWP_NOACTIVATE);
-        int xo = r.right/2 - (bxwid + (tabsz-1)*button_spacing)/2,x;
-        for (x=tabsz-1; x >=0; x--)
+        int xo = r.right/2 - (bxwid + (tabsz-1)*bspace)/2;
+        for (int x=0; x<tabsz; x++)
         {
           SetWindowPos(tab[x],NULL,xo,r.bottom - button_height - sc8, 0,0, SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE);
-          xo += w[x] + button_spacing;
+          xo += w[x] + bspace;
         }
       }
     break;
     case WM_COMMAND:
-      if (LOWORD(wParam) && HIWORD(wParam) == BN_CLICKED ) EndDialog(hwnd,LOWORD(wParam));
+      if (LOWORD(wParam) && HIWORD(wParam) == BN_CLICKED) 
+      {
+        EndDialog(hwnd,LOWORD(wParam));
+      }
     break;
     case WM_CLOSE:
       if (GetDlgItem(hwnd,IDCANCEL)) EndDialog(hwnd,IDCANCEL);
       else if (GetDlgItem(hwnd,IDNO)) EndDialog(hwnd,IDNO);
-      else if (GetDlgItem(hwnd,IDYES)) EndDialog(hwnd,IDYES);
       else EndDialog(hwnd,IDOK);
     break;
   }
@@ -1165,16 +1300,16 @@ static LRESULT WINAPI swellColorSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, 
         int tx = r.right - edew-edlw-border*2, ty = border*2 + psize;
         for (int x=0;x<6;x++)
         {
-          SetWindowPos(GetDlgItem(hwnd,0x100+x),NULL,tx, ty, edlw, edh, SWP_NOZORDER);
-          SetWindowPos(GetDlgItem(hwnd,0x200+x),NULL,tx+edlw+border, ty, edew, edh, SWP_NOZORDER);
+          SetWindowPos(GetDlgItem(hwnd,0x100+x),NULL,tx, ty, edlw, edh, SWP_NOZORDER|SWP_NOACTIVATE);
+          SetWindowPos(GetDlgItem(hwnd,0x200+x),NULL,tx+edlw+border, ty, edew, edh, SWP_NOZORDER|SWP_NOACTIVATE);
           ty += border+edh;
         }
 
         r.right -= border + butw;
         r.bottom -= border + buth;
-        SetWindowPos(GetDlgItem(hwnd,IDCANCEL), NULL, r.right, r.bottom, butw, buth, SWP_NOZORDER);
+        SetWindowPos(GetDlgItem(hwnd,IDCANCEL), NULL, r.right, r.bottom, butw, buth, SWP_NOZORDER|SWP_NOACTIVATE);
         r.right -= border*2 + butw;
-        SetWindowPos(GetDlgItem(hwnd,IDOK), NULL, r.right, r.bottom, butw, buth, SWP_NOZORDER);
+        SetWindowPos(GetDlgItem(hwnd,IDOK), NULL, r.right, r.bottom, butw, buth, SWP_NOZORDER|SWP_NOACTIVATE);
 
       }
     break;
@@ -1258,9 +1393,338 @@ bool SWELL_ChooseColor(HWND h, int *val, int ncustom, int *custom)
 #endif
 }
 
+#if defined(SWELL_FREETYPE) && defined(SWELL_LICE_GDI)
+
+struct FontChooser_State
+{
+  FontChooser_State()
+  {
+    hFont = 0;
+  }
+  ~FontChooser_State()
+  {
+    DeleteObject(hFont);
+  }
+
+  LOGFONT font;
+  HFONT hFont;
+  WDL_FastString lastfn;
+};
+
+extern const char *swell_last_font_filename;
+const char *swell_enumFontFiles(int x);
+int swell_getLineLength(const char *buf, int *post_skip, int wrap_maxwid, HDC hdc);
+
+static LRESULT WINAPI swellFontChooserProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+  enum { IDC_LIST=0x100, IDC_FACE, IDC_SIZE, IDC_WEIGHT, IDC_ITALIC };
+  enum { preview_h = 90, _border = 4, _buth = 24 };
+
+  switch (uMsg)
+  {
+    case WM_CREATE:
+      if (lParam)  // swell-specific
+      {
+        SetWindowLong(hwnd,GWL_WNDPROC,(LPARAM)SwellDialogDefaultWindowProc);
+        SetWindowLong(hwnd,DWL_DLGPROC,(LPARAM)swellFontChooserProc);
+        SetWindowLongPtr(hwnd,GWLP_USERDATA,lParam);
+
+        SetWindowText(hwnd,"Choose Font");
+
+        SWELL_MakeSetCurParms(1,1,0,0,hwnd,false,false);
+
+        SWELL_MakeButton(0, "OK", IDOK,0,0,0,0, 0);
+        SWELL_MakeButton(0, "Cancel", IDCANCEL,0,0,0,0, 0);
+        SWELL_MakeListBox(IDC_LIST,0,0,0,0, LBS_OWNERDRAWFIXED);
+        SWELL_MakeEditField(IDC_FACE, 0,0,0,0,  0);
+        SWELL_MakeEditField(IDC_SIZE, 0,0,0,0,  0);
+        SWELL_MakeCombo(IDC_WEIGHT, 0,0,0,0, CBS_DROPDOWNLIST);
+        SWELL_MakeCheckBox("Italic",IDC_ITALIC,0,0,0,0, 0);
+
+        SendDlgItemMessage(hwnd,IDC_WEIGHT,CB_ADDSTRING,0,(LPARAM)"Normal");
+        SendDlgItemMessage(hwnd,IDC_WEIGHT,CB_ADDSTRING,0,(LPARAM)"Bold");
+        SendDlgItemMessage(hwnd,IDC_WEIGHT,CB_ADDSTRING,0,(LPARAM)"Light");
+
+        SWELL_MakeSetCurParms(1,1,0,0,NULL,false,false);
+
+        SetWindowPos(hwnd,NULL,0,0, 550,380, SWP_NOZORDER|SWP_NOMOVE);
+
+        WDL_StringKeyedArray<char> list;
+        const char *p;
+        int x;
+        for (x=0; (p=swell_enumFontFiles(x)); x ++)
+        {
+          char buf[512];
+          lstrcpyn_safe(buf,WDL_get_filepart(p),sizeof(buf));
+          char *tmp = buf;
+          while (*tmp && *tmp != '-' && *tmp != '.') tmp++;
+          *tmp=0;
+          if (*buf) list.AddUnsorted(buf,true);
+        }
+        list.Resort();
+        FontChooser_State *cs = (FontChooser_State*)lParam;
+        bool italics = cs->font.lfItalic!=0;
+        int wt = cs->font.lfWeight;
+        const char *lp=NULL;
+        int cnt=0;
+        for (x=0;x<list.GetSize();x++)
+        {
+          const char *p=NULL;
+          if (list.Enumerate(x,&p) && p)
+          {
+            if (!stricmp(p,cs->font.lfFaceName))
+              SendDlgItemMessage(hwnd,IDC_LIST,LB_SETCURSEL,cnt,0);
+
+            size_t ll;
+            if (lp && !strncmp(p,lp,ll=strlen(lp)))
+            {
+              // if this is an extension of the last one, skip
+              const char *trail = p+ll;
+              if (strlen(trail)<=2)
+              {
+                int x;
+                for(x=0;x<2;x++)
+                {
+                  char c = *trail;
+                  if (c>0) c=toupper(c);
+                  if (c == 'B' || c == 'I' || c == 'L') trail++;
+                }
+              }
+              else while (*trail)
+              {
+                if (!strnicmp(trail,"Bold",4)) trail+=4;
+                else if (!strnicmp(trail,"Light",5)) trail+=5;
+                else if (!strnicmp(trail,"Italic",6)) trail+=6;
+                else if (!strnicmp(trail,"Oblique",7)) trail+=7;
+                else break;
+              }
+              if (!*trail) continue;
+            }
+            cnt++;
+            SendDlgItemMessage(hwnd,IDC_LIST,LB_ADDSTRING,0,(LPARAM)p);
+            lp=p;
+          }
+        }
+        SetDlgItemText(hwnd,IDC_FACE,cs->font.lfFaceName);
+        SetDlgItemInt(hwnd,IDC_SIZE,cs->font.lfHeight < 0 ? -cs->font.lfHeight : cs->font.lfHeight,TRUE);
+        SendDlgItemMessage(hwnd,IDC_WEIGHT,CB_SETCURSEL,wt<=FW_LIGHT ? 2 : wt < FW_BOLD ? 0 : 1,0);
+        if (italics)
+          CheckDlgButton(hwnd,IDC_ITALIC,BST_CHECKED);
+      }
+    break;
+    case WM_DRAWITEM:
+    {
+      DRAWITEMSTRUCT *di=(DRAWITEMSTRUCT *)lParam;
+      FontChooser_State *cs = (FontChooser_State*)GetWindowLongPtr(hwnd,GWLP_USERDATA);
+      if (cs && di->CtlID == IDC_LIST)
+      {
+        char buf[512];
+        buf[0]=0;
+        SendDlgItemMessage(hwnd,IDC_LIST,LB_GETTEXT,di->itemID,(WPARAM)buf);
+        if (buf[0])
+        {
+          HFONT font = CreateFont(g_swell_ctheme.default_font_size, 0, 0, 0, cs->font.lfWeight, cs->font.lfItalic, 
+              FALSE, FALSE, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH, buf);
+
+          HGDIOBJ oldFont = SelectObject(di->hDC,font);
+          DrawText(di->hDC,buf,-1,&di->rcItem,DT_VCENTER|DT_LEFT|DT_NOPREFIX);
+          wchar_t tmp[] = {'a','A','z','Z'};
+          unsigned short ind[4];
+          GetGlyphIndicesW(di->hDC,tmp,4,ind,0);
+          SelectObject(di->hDC,oldFont);
+
+          int x;
+          for (x=0;x<4 && ind[x]==0xffff;x++);
+          if (x==4)
+          {
+            RECT r = di->rcItem;
+            r.right-=4;
+            DrawText(di->hDC,buf,-1,&r,DT_VCENTER|DT_RIGHT|DT_NOPREFIX);
+          }
+          DeleteObject(font);
+
+        }
+      }
+    }
+    return 0;
+    case WM_PAINT:
+      {
+        PAINTSTRUCT ps;
+        FontChooser_State *cs = (FontChooser_State*)GetWindowLongPtr(hwnd,GWLP_USERDATA);
+        if (cs && BeginPaint(hwnd,&ps))
+        {
+          RECT r;
+          GetClientRect(hwnd,&r);
+
+          const int border = SWELL_UI_SCALE(_border);
+          const int buth = SWELL_UI_SCALE(_buth);
+          const int ph = SWELL_UI_SCALE(preview_h);
+          r.left += border;
+          r.right -= border;
+          r.bottom -= border*2 + buth;
+          r.top = r.bottom - ph;
+
+          HFONT f = CreateFontIndirect(&cs->font);
+          HBRUSH br = CreateSolidBrush(RGB(255,255,255));
+          FillRect(ps.hdc,&r,br);
+          DeleteObject(br);
+          SetTextColor(ps.hdc,RGB(0,0,0));
+          SetBkMode(ps.hdc,TRANSPARENT);
+          r.right-=4;
+          r.left+=4;
+          if (swell_last_font_filename)
+          {
+            r.bottom -= DrawText(ps.hdc,swell_last_font_filename,-1,&r,DT_BOTTOM|DT_NOPREFIX|DT_SINGLELINE|DT_RIGHT);
+          }
+
+          HGDIOBJ oldFont = SelectObject(ps.hdc,f);
+
+          extern const char *g_swell_fontpangram;
+          const char *str = g_swell_fontpangram;
+          //
+          // thanks, http://dailypangram.tumblr.com/ :)
+          if (!str) str = "Strangely, aerobic exercise doesn’t quite work with improvised free jazz.";
+
+          while (*str)
+          {
+            int sk=0, lb=swell_getLineLength(str, &sk, r.right-r.left, ps.hdc);
+            if (!lb&&!sk) break;
+            if (lb>0) r.top += DrawText(ps.hdc,str,lb,&r,DT_TOP|DT_LEFT|DT_NOPREFIX|DT_SINGLELINE);
+            str+=lb+sk;
+          }
+
+
+          SelectObject(ps.hdc,oldFont);
+          DeleteObject(f);
+
+
+          EndPaint(hwnd,&ps);
+        }
+      }
+
+    break;
+    case WM_GETMINMAXINFO:
+      {
+        LPMINMAXINFO p=(LPMINMAXINFO)lParam;
+        p->ptMinTrackSize.x = 400;
+        p->ptMinTrackSize.y = 300;
+      }
+    break;
+    case WM_SIZE:
+      {
+        RECT r;
+        GetClientRect(hwnd,&r);
+        const int border = SWELL_UI_SCALE(_border);
+        const int buth = SWELL_UI_SCALE(_buth);
+        const int butw = SWELL_UI_SCALE(50);
+        const int edh = SWELL_UI_SCALE(20);
+        const int size_w = SWELL_UI_SCALE(50);
+        const int wt_w = SWELL_UI_SCALE(80);
+        const int italic_w = SWELL_UI_SCALE(60);
+
+        r.left += border;
+        r.right -= border;
+
+        r.bottom -= border + buth;
+        SetWindowPos(GetDlgItem(hwnd,IDCANCEL), NULL, r.right - butw, r.bottom, butw, buth, SWP_NOZORDER|SWP_NOACTIVATE);
+        SetWindowPos(GetDlgItem(hwnd,IDOK), NULL, r.right - border - butw*2, r.bottom, butw, buth, SWP_NOZORDER|SWP_NOACTIVATE);
+        r.bottom -= SWELL_UI_SCALE(preview_h) + border;
+        int psz=wdl_max(g_swell_ctheme.combo_height,edh);
+        r.bottom -= psz + border;
+        SetWindowPos(GetDlgItem(hwnd,IDC_FACE),NULL,r.left,r.bottom + (psz-edh)/2, 
+            r.right-r.left - size_w-wt_w-italic_w - border*3, edh, SWP_NOZORDER|SWP_NOACTIVATE);
+        SetWindowPos(GetDlgItem(hwnd,IDC_SIZE),NULL,r.right-size_w-wt_w-italic_w-border*2,r.bottom + (psz-edh)/2, 
+            size_w, edh, SWP_NOZORDER|SWP_NOACTIVATE);
+        SetWindowPos(GetDlgItem(hwnd,IDC_WEIGHT),NULL,r.right-wt_w-italic_w-border,r.bottom + (psz-g_swell_ctheme.combo_height)/2, 
+            wt_w, g_swell_ctheme.combo_height, SWP_NOZORDER|SWP_NOACTIVATE);
+        SetWindowPos(GetDlgItem(hwnd,IDC_ITALIC),NULL,r.right-italic_w,r.bottom + (psz-edh)/2, 
+            italic_w, edh, SWP_NOZORDER|SWP_NOACTIVATE);
+
+        SetWindowPos(GetDlgItem(hwnd,IDC_LIST), NULL, border, border, r.right, r.bottom - border*2, SWP_NOZORDER|SWP_NOACTIVATE);
+
+
+      }
+    break;
+    case WM_COMMAND:
+      switch (LOWORD(wParam))
+      {
+        case IDC_LIST:
+          if (HIWORD(wParam) == LBN_SELCHANGE)
+          {
+            int idx = (int) SendDlgItemMessage(hwnd,IDC_LIST,LB_GETCURSEL,0,0);
+            if (idx>=0)
+            {
+              char buf[512];
+              buf[0]=0;
+              SendDlgItemMessage(hwnd,IDC_LIST,LB_GETTEXT,idx,(WPARAM)buf);
+              if (buf[0]) SetDlgItemText(hwnd,IDC_FACE,buf);
+            }
+          }
+        break;
+        case IDC_SIZE:
+        case IDC_FACE:
+        case IDC_ITALIC:
+        case IDC_WEIGHT:
+        {
+          FontChooser_State *cs = (FontChooser_State*)GetWindowLongPtr(hwnd,GWLP_USERDATA);
+          if (cs) 
+          {
+            if (LOWORD(wParam) == IDC_FACE)
+              GetDlgItemText(hwnd,IDC_FACE,cs->font.lfFaceName,sizeof(cs->font.lfFaceName));
+            else if (LOWORD(wParam) == IDC_SIZE)
+            {
+              BOOL t;
+              int a = GetDlgItemInt(hwnd,IDC_SIZE,&t,FALSE);
+              if (t)
+              {
+                if (cs->font.lfHeight < 0) cs->font.lfHeight = -a;
+                else cs->font.lfHeight = a;
+              }
+            }
+            else if (LOWORD(wParam) == IDC_ITALIC) cs->font.lfItalic = IsDlgButtonChecked(hwnd,IDC_ITALIC) ? 1:0;
+            else if (LOWORD(wParam) == IDC_WEIGHT && HIWORD(wParam) == CBN_SELCHANGE)
+            {
+              int idx = (int) SendDlgItemMessage(hwnd,IDC_WEIGHT,CB_GETCURSEL,0,0);
+              if (idx==0) cs->font.lfWeight = FW_NORMAL;
+              else if (idx==1) cs->font.lfWeight = FW_BOLD;
+              else if (idx==2) cs->font.lfWeight = FW_LIGHT;
+            }
+            InvalidateRect(hwnd,NULL,FALSE);
+          }
+        }
+        break;
+        case IDCANCEL:
+          EndDialog(hwnd,0);
+        break;
+        case IDOK:
+          EndDialog(hwnd,1);
+        break;
+      }
+    break;
+
+  }
+  return 0;
+}
+
+void *swell_MatchFont(const char *lfFaceName, int weight, int italic, const char **fnOut);
+
+#endif
+
 bool SWELL_ChooseFont(HWND h, LOGFONT *lf)
 {
+#if defined(SWELL_FREETYPE) && defined(SWELL_LICE_GDI)
+  FontChooser_State state;
+  state.font = *lf;
+
+  bool rv = DialogBoxParam(NULL,NULL,h,swellFontChooserProc,(LPARAM)&state)!=0;
+  if (rv)
+  {
+    *lf = state.font;
+  }
+  return rv;
+#else
   return false;
+#endif
 }
 
 #endif
