@@ -255,6 +255,16 @@ static void pcmToFloats(void *src, int items, int bps, int src_spacing, float *d
       dest+=dest_spacing;
     }
   }
+  else if (bps == 8)
+  {
+    unsigned char *i1=(unsigned char *)src;
+    while (items--)
+    {
+      UINT8_TO_float(*dest,*i1);
+      i1+=src_spacing;
+      dest+=dest_spacing;
+    }
+  }
 }
 
 static void floatsToPcm(float *src, int src_spacing, int items, void *dest, int bps, int dest_spacing)
@@ -286,6 +296,16 @@ static void floatsToPcm(float *src, int src_spacing, int items, void *dest, int 
     while (items--)
     {
       float_TO_INT16(*o1,*src);
+      src+=src_spacing;
+      o1+=dest_spacing;
+    }
+  }
+  else if (bps == 8)
+  {
+    unsigned char *o1=(unsigned char*)dest;
+    while (items--)
+    {
+      float_TO_UINT8(*o1,*src);
       src+=src_spacing;
       o1+=dest_spacing;
     }
@@ -326,6 +346,16 @@ static void pcmToDoubles(void *src, int items, int bps, int src_spacing, PCMFMTC
       dest+=dest_spacing;
     }
   }
+  else if (bps == 8)
+  {
+    unsigned char *i1=(unsigned char *)src;
+    while (items--)
+    {
+      UINT8_TO_double(*dest,*i1);
+      i1+=src_spacing;
+      dest+=dest_spacing;
+    }
+  }
 }
 
 static void doublesToPcm(PCMFMTCVT_DBL_TYPE *src, int src_spacing, int items, void *dest, int bps, int dest_spacing, int byteadvancefor24=0)
@@ -357,6 +387,16 @@ static void doublesToPcm(PCMFMTCVT_DBL_TYPE *src, int src_spacing, int items, vo
     while (items--)
     {
       double_TO_INT16(*o1,*src);
+      src+=src_spacing;
+      o1+=dest_spacing;
+    }
+  }
+  else if (bps == 8)
+  {
+    unsigned char *o1=(unsigned char*)dest;
+    while (items--)
+    {
+      float_TO_UINT8(*o1,*src);
       src+=src_spacing;
       o1+=dest_spacing;
     }
