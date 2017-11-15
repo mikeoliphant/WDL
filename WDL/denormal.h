@@ -46,6 +46,34 @@ typedef union { float fl; unsigned int w; } WDL_DenormalFloatAccess;
 #define WDL_DENORMAL_OR_ZERO_DOUBLE_AGGRESSIVE(a) (((WDL_DENORMAL_DOUBLE_HW(a)+0x100000)&0x7ff00000) < WDL_DENORMAL_DOUBLE_AGGRESSIVE_CUTOFF)
 #define WDL_DENORMAL_OR_ZERO_FLOAT_AGGRESSIVE(a) (((WDL_DENORMAL_FLOAT_W(a)+0x800000)&0x7f800000) < WDL_DENORMAL_FLOAT_AGGRESSIVE_CUTOFF)
 
+#ifdef WDL_DENORMAL_BYPASS // define when already flushing denormals to zero via fesetenv or _controlfp_s
+
+#define denormal_filter_double(a) (a)
+#define denormal_filter_double2(a) (a)
+#define denormal_filter_double_aggressive(a) (a)
+
+#define denormal_filter_float(a) (a)
+#define denormal_filter_float2(a) (a)
+#define denormal_filter_float_aggressive(a) (a)
+
+#define denormal_fix_double(a) ((void)0)
+#define denormal_fix_double_aggressive(a) ((void)0)
+
+#define denormal_fix_float(a) ((void)0)
+#define denormal_fix_float_aggressive(a) ((void)0)
+
+#ifdef __cplusplus
+
+#define denormal_filter(a) (a)
+#define denormal_filter_aggressive(a) (a)
+
+#define denormal_fix(a) ((void)0)
+#define denormal_fix_aggressive(a) ((void)0)
+
+#endif
+
+#else
+
 static double WDL_DENORMAL_INLINE denormal_filter_double(double a)
 {
   return (WDL_DENORMAL_DOUBLE_HW(&a)&0x7ff00000) ? a : 0.0;
@@ -159,6 +187,8 @@ static bool WDL_DENORMAL_INLINE WDL_DENORMAL_OR_ZERO_AGGRESSIVE(float *a)
 
 
 #endif // cplusplus versions
+
+#endif // WDL_DENORMAL_BYPASS
  
 
 
