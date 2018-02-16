@@ -39,33 +39,7 @@ typedef union { float fl; unsigned int w; } WDL_DenormalFloatAccess;
 #define WDL_DENORMAL_FLOAT_AGGRESSIVE_CUTOFF 0x25000000
 
 
-#ifdef WDL_DENORMAL_BYPASS // define when already flushing denormals to zero via fesetenv or _controlfp_s
-
-#define denormal_filter_double(a) (a)
-#define denormal_filter_double2(a) (a)
-#define denormal_filter_double_aggressive(a) (a)
-
-#define denormal_filter_float(a) (a)
-#define denormal_filter_float2(a) (a)
-#define denormal_filter_float_aggressive(a) (a)
-
-#define denormal_fix_double(a) ((void)0)
-#define denormal_fix_double_aggressive(a) ((void)0)
-
-#define denormal_fix_float(a) ((void)0)
-#define denormal_fix_float_aggressive(a) ((void)0)
-
-#ifdef __cplusplus
-
-#define denormal_filter(a) (a)
-#define denormal_filter_aggressive(a) (a)
-
-#define denormal_fix(a) ((void)0)
-#define denormal_fix_aggressive(a) ((void)0)
-
-#endif
-
-#else
+#ifndef WDL_DENORMAL_BYPASS // define when already flushing denormals to zero via fesetenv or _controlfp_s
 
 static double WDL_DENORMAL_INLINE denormal_filter_double(double a)
 {
@@ -160,6 +134,28 @@ static void WDL_DENORMAL_INLINE denormal_fix_aggressive(float *a)
 
 
 #endif // cplusplus versions
+
+
+
+#else // WDL_DENORMAL_BYPASS
+
+#define denormal_filter_double(a) (a)
+#define denormal_filter_double2(a) (a)
+#define denormal_filter_double_aggressive(a) (a)
+#define denormal_filter_float(a) (a)
+#define denormal_filter_float2(a) (a)
+#define denormal_filter_float_aggressive(a) (a)
+#define denormal_fix_double(ptr) ((void)0)
+#define denormal_fix_double_aggressive(ptr) ((void)0)
+#define denormal_fix_float(ptr) ((void)0)
+#define denormal_fix_float_aggressive(ptr) ((void)0)
+
+#ifdef __cplusplus
+#define denormal_filter(a) (a)
+#define denormal_filter_aggressive(a) (a)
+#define denormal_fix(ptr) ((void)0)
+#define denormal_fix_aggressive(ptr) ((void)0)
+#endif
 
 #endif // WDL_DENORMAL_BYPASS
  
