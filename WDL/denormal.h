@@ -158,7 +158,37 @@ static void WDL_DENORMAL_INLINE denormal_fix_aggressive(float *a)
 #endif
 
 #endif // WDL_DENORMAL_BYPASS
- 
+
+
+
+////////////////////
+// denormal checker functions, return 0 if denormal/inf/NaN, != 0 otherwise
+
+static int WDL_DENORMAL_INLINE denormal_isnormal_double(double a)
+{
+  unsigned int hw = WDL_DENORMAL_DOUBLE_HW(&a)&0x7ff00000;
+  return hw < 0x7ff00000 ? hw : 0;
+}
+
+static int WDL_DENORMAL_INLINE denormal_isnormal_float(float a)
+{
+  unsigned int hw = WDL_DENORMAL_FLOAT_W(&a)&0x7f800000;
+  return hw < 0x7f800000 ? hw : 0;
+}
+
+#ifdef __cplusplus
+
+static bool WDL_DENORMAL_INLINE denormal_isnormal(double a)
+{
+  return !!denormal_isnormal_double(a);
+}
+
+static bool WDL_DENORMAL_INLINE denormal_isnormal(float a)
+{
+  return !!denormal_isnormal_float(a);
+}
+
+#endif
 
 
 
