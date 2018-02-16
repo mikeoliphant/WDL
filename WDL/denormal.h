@@ -19,6 +19,9 @@ typedef union { float fl; unsigned int w; } WDL_DenormalFloatAccess;
 // note: the _aggressive versions filter out anything less than around 1.0e-16 or so (approximately) to 0.0, including -0.0 (becomes 0.0)
 // note: new! the _aggressive versions also filter inf and NaN to 0.0
 
+// note: new!! FTZ/DAZ support, see WDL_DENORMAL_FTZ, WDL_DENORMAL_DAZ, and WDL_DenormalMode
+// optionally #define WDL_DENORMAL_BYPASS to bypass filter/fix functions, for easy switching between filter/fix and FTZ/DAZ
+
 #ifdef __cplusplus
 #define WDL_DENORMAL_INLINE inline
 #elif defined(_MSC_VER)
@@ -189,6 +192,177 @@ static bool WDL_DENORMAL_INLINE denormal_isnormal(float a)
 }
 
 #endif
+
+
+
+////////////////////
+// FTZ (flush-to-zero) sets denormal results to 0
+// DAZ (denormals-are-zero) treats denormal input as 0
+
+#ifdef WDL_DENORMAL_FTZ
+
+#include <xmmintrin.h> // SSE header, but requires SSE2 (fails with /arch:SSE in MSVC)
+
+static int WDL_DENORMAL_INLINE denormal_get_ftz_mode(void)
+{
+  return
+  #if defined(_MSC_VER) && _MSC_VER < 1700
+  _MM_GET_FLUSH_ZERO_MODE(0) // hush warning C4003: not enough actual parameters for macro
+  #else
+  _MM_GET_FLUSH_ZERO_MODE()
+  #endif
+  == _MM_FLUSH_ZERO_ON;
+}
+
+static void WDL_DENORMAL_INLINE denormal_set_ftz_mode(int mode)
+{
+  _MM_SET_FLUSH_ZERO_MODE(mode ? _MM_FLUSH_ZERO_ON : _MM_FLUSH_ZERO_OFF);
+}
+
+#endif
+
+
+#ifdef WDL_DENORMAL_DAZ
+
+#include <pmmintrin.h> // requires SSE3
+
+static int WDL_DENORMAL_INLINE denormal_get_daz_mode(void)
+{
+  return _MM_GET_DENORMALS_ZERO_MODE() == _MM_DENORMALS_ZERO_ON;
+}
+
+static void WDL_DENORMAL_INLINE denormal_set_daz_mode(int mode)
+{
+  _MM_SET_DENORMALS_ZERO_MODE(mode ? _MM_DENORMALS_ZERO_ON : _MM_DENORMALS_ZERO_OFF);
+}
+
+#endif
+
+
+#ifdef __cplusplus
+
+// wrapper class that sets FTZ/DAZ at the beginning of a code block
+// automatically restores FTZ/DAZ to their original state at the end of the block
+
+class WDL_DenormalMode
+{
+public:
+  WDL_DenormalMode(bool ftz = true, bool daz = true)
+  {
+    #if defined(WDL_DENORMAL_FTZ) || defined(WDL_DENORMAL_DAZ)
+    int mode = 0;
+    #endif
+
+    #ifdef WDL_DENORMAL_FTZ
+    {
+      const int new_ftz = ftz, old_ftz = denormal_get_ftz_mode();
+      mode |= new_ftz | (old_ftz << 1);
+      if (new_ftz != old_ftz) denormal_set_ftz_mode(new_ftz);
+    }
+    #endif
+
+    #ifdef WDL_DENORMAL_DAZ
+    {
+      const int new_daz = daz, old_daz = denormal_get_daz_mode();
+      mode |= (new_daz << 2) | (old_daz << 3);
+      if (new_daz != old_daz) denormal_set_daz_mode(new_daz);
+    }
+    #endif
+
+    #if defined(WDL_DENORMAL_FTZ) || defined(WDL_DENORMAL_DAZ)
+    m_mode = mode;
+    #endif
+  }
+
+  ~WDL_DenormalMode() { Restore(); }
+
+  void Save()
+  {
+    #if defined(WDL_DENORMAL_FTZ) || defined(WDL_DENORMAL_DAZ)
+    int mode = 0;
+    #endif
+
+    #ifdef WDL_DENORMAL_FTZ
+    {
+      const int ftz = denormal_get_ftz_mode();
+      mode |= ftz | (ftz << 1);
+    }
+    #endif
+
+    #ifdef WDL_DENORMAL_DAZ
+    {
+      const int daz = denormal_get_daz_mode();
+      mode |= (daz << 2) | (daz << 3);
+    }
+    #endif
+
+    #if defined(WDL_DENORMAL_FTZ) || defined(WDL_DENORMAL_DAZ)
+    m_mode = mode;
+    #endif
+  }
+
+  void Restore()
+  {
+    #ifdef WDL_DENORMAL_FTZ
+    {
+      const int old_ftz = (m_mode >> 1) & 1;
+      if (old_ftz ^ m_mode) denormal_set_ftz_mode(old_ftz);
+    }
+    #endif
+
+    #ifdef WDL_DENORMAL_DAZ
+    {
+      const int old_daz = (m_mode >> 3) & 1;
+      if (old_daz ^ m_mode) denormal_set_daz_mode(old_daz);
+    }
+    #endif
+  }
+
+  inline bool get_ftz_mode() const
+  {
+    return
+    #ifdef WDL_DENORMAL_FTZ
+    !!(m_mode & 1);
+    #else
+    false;
+    #endif
+  }
+
+  void set_ftz_mode(bool ftz)
+  {
+    #ifdef WDL_DENORMAL_FTZ
+    const int new_ftz = ftz;
+    m_mode ^= (new_ftz ^ m_mode) & 1;
+    denormal_set_ftz_mode(new_ftz);
+    #endif
+  }
+
+  inline bool get_daz_mode() const
+  {
+    return
+    #ifdef WDL_DENORMAL_DAZ
+    !!(m_mode & 4);
+    #else
+    false;
+    #endif
+  }
+
+  void set_daz_mode(bool daz)
+  {
+    #ifdef WDL_DENORMAL_DAZ
+    const int new_daz = daz;
+    m_mode ^= ((new_daz << 2) ^ m_mode) & 4;
+    denormal_set_daz_mode(new_daz);
+    #endif
+  }
+
+private:
+  #if defined(WDL_DENORMAL_FTZ) || defined(WDL_DENORMAL_DAZ)
+  unsigned int m_mode;
+  #endif
+};
+
+#endif // WDL_DenormalMode
 
 
 
