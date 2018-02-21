@@ -1108,9 +1108,31 @@ void WDL_fft(WDL_FFT_COMPLEX *buf, int len, int isInverse)
   }
 }
 
-/* Real FFT is based on: http://www.katjaas.nl/realFFT/realFFT2.html */
-
 #if !defined(WDL_FFT_NO_REAL) && !defined(WDL_FFT_NO_PERMUTE)
+
+static inline void r2(register WDL_FFT_REAL *a)
+{
+  register WDL_FFT_REAL t1, t2;
+
+  t1 = a[0] + a[1];
+  t2 = a[0] - a[1];
+  a[0] = t1 * 2;
+  a[1] = t2 * 2;
+}
+
+static inline void v2(register WDL_FFT_REAL *a)
+{
+  register WDL_FFT_REAL t1, t2;
+
+  t1 = a[0] + a[1];
+  t2 = a[0] - a[1];
+  a[0] = t1;
+  a[1] = t2;
+}
+
+/* Generally faster for medium len, possibly slower for len >= 16384, but
+depends on WDL_FFT_REALSIZE, optimizations, architecture etc., so YMMV. */
+#ifdef WDL_FFT_REAL_DJBFFT_STYLE
 
 #define R(a0,a1,b0,b1,wre,wim) { \
   t1 = a0 + b0; \
@@ -1134,16 +1156,6 @@ void WDL_fft(WDL_FFT_COMPLEX *buf, int len, int isInverse)
   a1 = (WDL_FFT_COMPLEX*)a + _idxperm[n + k - 2]; \
   a2 = (WDL_FFT_COMPLEX*)a + _idxperm[2*n - k - 2]; \
   }
-
-static inline void r2(register WDL_FFT_REAL *a)
-{
-  register WDL_FFT_REAL t1, t2;
-
-  t1 = a[0] + a[1];
-  t2 = a[0] - a[1];
-  a[0] = t1 * 2;
-  a[1] = t2 * 2;
-}
 
 static void r4(register WDL_FFT_REAL *a)
 {
@@ -1284,16 +1296,6 @@ static void r32768(register WDL_FFT_REAL *a)
 {
   c16384((WDL_FFT_COMPLEX *)a);
   rpassbig(a,d32768,4096);
-}
-
-static inline void v2(register WDL_FFT_REAL *a)
-{
-  register WDL_FFT_REAL t1, t2;
-
-  t1 = a[0] + a[1];
-  t2 = a[0] - a[1];
-  a[0] = t1;
-  a[1] = t2;
 }
 
 static void v4(register WDL_FFT_REAL *a)
@@ -1437,14 +1439,93 @@ static void v32768(register WDL_FFT_REAL *a)
   u16384((WDL_FFT_COMPLEX *)a);
 }
 
+#else /* !WDL_FFT_REAL_DJBFFT_STYLE */
+
+static void two_for_one(WDL_FFT_REAL* buf, const WDL_FFT_COMPLEX *d, int len, int isInverse)
+{
+  const unsigned int half = (unsigned)len >> 1, quart = half >> 1, eighth = quart >> 1;
+  const int *permute = WDL_fft_permute_tab(half);
+  unsigned int i, j;
+
+  WDL_FFT_COMPLEX *p, *q, tw, sum, diff;
+  WDL_FFT_REAL tw1, tw2;
+
+  if (!isInverse)
+  {
+    WDL_fft((WDL_FFT_COMPLEX*)buf, half, isInverse);
+    r2(buf);
+  }
+  else
+  {
+    v2(buf);
+  }
+
+  /* Source: http://www.katjaas.nl/realFFT/realFFT2.html */
+
+  for (i = 1; i < quart; ++i)
+  {
+    p = (WDL_FFT_COMPLEX*)buf + permute[i];
+    q = (WDL_FFT_COMPLEX*)buf + permute[half - i];
+
+/*  tw.re = cos(2*PI * i / len);
+    tw.im = sin(2*PI * i / len); */
+
+    if (i < eighth)
+    {
+      j = i - 1;
+      tw.re = d[j].re;
+      tw.im = d[j].im;
+    }
+    else if (i > eighth)
+    {
+      j = quart - i - 1;
+      tw.re = d[j].im;
+      tw.im = d[j].re;
+    }
+    else
+    {
+      tw.re = tw.im = sqrthalf;
+    }
+
+    if (!isInverse) tw.re = -tw.re;
+
+    sum.re = p->re + q->re;
+    sum.im = p->im + q->im;
+    diff.re = p->re - q->re;
+    diff.im = p->im - q->im;
+
+    tw1 = tw.re * sum.im + tw.im * diff.re;
+    tw2 = tw.im * sum.im - tw.re * diff.re;
+
+    p->re = sum.re - tw1;
+    p->im = diff.im - tw2;
+    q->re = sum.re + tw1;
+    q->im = -(diff.im + tw2);
+  }
+
+  p = (WDL_FFT_COMPLEX*)buf + permute[i];
+  p->re *=  2;
+  p->im *= -2;
+
+  if (isInverse) WDL_fft((WDL_FFT_COMPLEX*)buf, half, isInverse);
+}
+
+#endif /* WDL_FFT_REAL_DJBFFT_STYLE */
+
 void WDL_real_fft(void* buf, int len, int isInverse)
 {
   switch (len)
   {
+#ifndef WDL_FFT_REAL_DJBFFT_STYLE
+    case 2: if (!isInverse) r2(buf); else v2(buf); break;
+    case 4: case 8: two_for_one(buf, 0, len, isInverse); break;
+#define TMP(x) case x: two_for_one(buf, d##x, len, isInverse); break;
+#else
 #define TMP(x) case x: if (!isInverse) r##x(buf); else v##x(buf); break;
     TMP(2)
     TMP(4)
     TMP(8)
+#endif
     TMP(16)
     TMP(32)
     TMP(64)
