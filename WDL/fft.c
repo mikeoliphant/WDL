@@ -981,22 +981,25 @@ static void u32768(register WDL_FFT_COMPLEX *a)
 
 static void fft_gen(WDL_FFT_COMPLEX *buf, const WDL_FFT_COMPLEX *buf2, int sz, int isfull)
 {
+  const WDL_FFT_REAL *p = (const WDL_FFT_REAL *) buf2;
   int x;
   double div=PI*0.25/(sz+1);
 
   if (isfull) div*=2.0;
+  if (p) p--;
 
   for (x = 0; x < sz; x ++)
   {
-    if (!(x & 1) || !buf2)
+    if (!(x & 1) || !p)
     {
       buf[x].re = (WDL_FFT_REAL) cos((x+1)*div);
       buf[x].im = (WDL_FFT_REAL) sin((x+1)*div);
     }
     else
     {
-      buf[x].re = buf2[x >> 1].re;
-      buf[x].im = buf2[x >> 1].im;
+      const WDL_FFT_REAL a[2] = { p[x], p[x+1] };
+      buf[x].re = a[0];
+      buf[x].im = a[1];
     }
   }
 }
