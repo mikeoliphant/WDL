@@ -1688,7 +1688,7 @@ void EnableWindow(HWND hwnd, int enable)
   if (bla && [bla respondsToSelector:@selector(setEnabled:)])
   {
     if (enable == -1000 && [bla respondsToSelector:@selector(setEnabledSwellNoFocus)])
-      [bla setEnabledSwellNoFocus];
+      [(SWELL_hwndChild *)bla setEnabledSwellNoFocus];
     else
       [bla setEnabled:(enable?YES:NO)];
     if ([bla isKindOfClass:[SWELL_TextField class]])
@@ -4632,6 +4632,7 @@ void ListView_SetItemCount(HWND h, int cnt)
   if (!tv->m_lbMode && (tv->style & LVS_OWNERDATA))
   {
     tv->ownermode_cnt=cnt;
+    [tv noteNumberOfRowsChanged];
   }
 }
 
@@ -5846,7 +5847,7 @@ void ListView_SetTextColor(HWND hwnd, int color)
 
 BOOL ShellExecute(HWND hwndDlg, const char *action,  const char *content1, const char *content2, const char *content3, int blah)
 {
-  if (content1 && !strnicmp(content1,"http://",7))
+  if (content1 && (!strnicmp(content1,"http://",7) || !strnicmp(content1,"https://",8)))
   {
      NSWorkspace *wk = [NSWorkspace sharedWorkspace];
      if (!wk) return FALSE;
