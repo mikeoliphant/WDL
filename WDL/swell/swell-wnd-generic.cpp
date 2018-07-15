@@ -662,7 +662,14 @@ void SetWindowPos(HWND hwnd, HWND zorder, int x, int y, int cx, int cy, int flag
 
 BOOL EnumWindows(BOOL (*proc)(HWND, LPARAM), LPARAM lp)
 {
-    return FALSE;
+  HWND h = SWELL_topwindows;
+  if (!proc) return FALSE;
+  while (h)
+  {
+    if (!proc(h,lp)) return FALSE;
+    h = h->m_next;
+  }
+  return TRUE;
 }
 
 HWND GetWindow(HWND hwnd, int what)
@@ -5878,11 +5885,15 @@ bool ListView_GetItem(HWND h, LVITEM *item)
 
   if (item->mask & LVIF_STATE) 
   {
-    item->state = lvs->get_sel(item->iItem) ? LVIS_SELECTED : 0;
-    if (lvs->m_selitem == item->iItem) item->state |= LVIS_FOCUSED;
-    SWELL_ListView_Row *row = lvs->m_data.Get(item->iItem);
-    if (row)
-      item->state |= INDEXTOSTATEIMAGEMASK(row->m_imageidx);
+    item->state = 0;
+    if ((item->stateMask & LVIS_SELECTED) && lvs->get_sel(item->iItem)) item->state |= LVIS_SELECTED;
+    if ((item->stateMask & LVIS_FOCUSED) && lvs->m_selitem == item->iItem) item->state |= LVIS_FOCUSED;
+    if (item->stateMask & 0xff0000)
+    {
+      SWELL_ListView_Row *row = lvs->m_data.Get(item->iItem);
+      if (row)
+        item->state |= INDEXTOSTATEIMAGEMASK(row->m_imageidx);
+    }
   }
 
   return true;
@@ -7172,27 +7183,20 @@ BOOL ScrollWindow(HWND hwnd, int xamt, int yamt, const RECT *lpRect, const RECT 
 
 HWND FindWindowEx(HWND par, HWND lastw, const char *classname, const char *title)
 {
-  if (!par&&!lastw) return NULL; // need to implement this modes
-  HWND h=lastw?GetWindow(lastw,GW_HWNDNEXT):GetWindow(par,GW_CHILD);
+  HWND h=lastw?GetWindow(lastw,GW_HWNDNEXT):par?GetWindow(par,GW_CHILD):SWELL_topwindows;
   while (h)
   {
     bool isOk=true;
-    if (title)
+    if (title && strcmp(title,h->m_title.Get())) isOk=false;
+    else if (classname)
     {
-      char buf[512];
-      buf[0]=0;
-      GetWindowText(h,buf,sizeof(buf));
-      if (strcmp(title,buf)) isOk=false;
-    }
-    if (classname)
-    {
-      // todo: other classname translations
+      if (!h->m_classname || strcmp(classname,h->m_classname)) isOk=false;
     }
     
     if (isOk) return h;
     h=GetWindow(h,GW_HWNDNEXT);
   }
-  return h;
+  return NULL;
 }
 
 
