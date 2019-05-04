@@ -220,12 +220,12 @@ static void WDL_DENORMAL_INLINE denormal_fix_aggressive(float *a)
 #define denormal_filter_float2(x) (x)
 #define denormal_filter_float_aggressive(x) (x)
 #define denormal_filter_aggressive(x) (x)
-#define denormal_fix(x) do { } while(0)
-#define denormal_fix_aggressive(x) do { } while(0)
-#define denormal_fix_double(x) do { } while(0)
-#define denormal_fix_double_aggressive(x) do { } while(0)
-#define denormal_fix_float(x) do { } while(0)
-#define denormal_fix_float_aggressive(x) do { } while(0)
+#define denormal_fix(x) ((void)0)
+#define denormal_fix_aggressive(x) ((void)0)
+#define denormal_fix_double(x) ((void)0)
+#define denormal_fix_double_aggressive(x) ((void)0)
+#define denormal_fix_float(x) ((void)0)
+#define denormal_fix_float_aggressive(x) ((void)0)
 
 #endif 
 
