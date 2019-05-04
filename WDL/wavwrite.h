@@ -142,7 +142,7 @@ class WaveWriter
     {
       if (!m_fp) return;
 
-      len = fwrite(buf,1,len,m_fp);
+      len = (unsigned int)fwrite(buf,1,len,m_fp);
       if (m_total_size) m_total_size += len; else m_data_size += len;
     }
 
@@ -417,7 +417,7 @@ class WaveWriter
     void WriteChunk(void *buf, unsigned int len)
     {
       EndDataChunk();
-      if (m_fp) m_total_size += fwrite(buf,1,len,m_fp);
+      if (m_fp) m_total_size += (unsigned int)fwrite(buf,1,len,m_fp);
     }
 
     void EndDataChunk()
@@ -441,11 +441,11 @@ class WaveWriter
     {
     #if defined(WDL_LITTLE_ENDIAN) || defined(WDL_BIG_ENDIAN)
       WDL_BSWAP16_IF_BE(a);
-      return fwrite(&a,1,2,fp);
+      return (int)fwrite(&a,1,2,fp);
     #else
       unsigned char buf[2];
       buf[0]=a&0xff; buf[1]=a>>8;
-      return fwrite(buf,1,2,fp);
+      return (int)fwrite(buf,1,2,fp);
     #endif
     }
 
@@ -453,11 +453,11 @@ class WaveWriter
     {
     #if defined(WDL_LITTLE_ENDIAN) || defined(WDL_BIG_ENDIAN)
       WDL_BSWAP32_IF_BE(a);
-      return fwrite(&a,1,4,fp);
+      return (int)fwrite(&a,1,4,fp);
     #else
       unsigned char buf[4], *p = buf;
       for (int x = 0; x < 32; x += 8) *p++=(a>>x)&0xff;
-      return fwrite(buf,1,4,fp);
+      return (int)fwrite(buf,1,4,fp);
     #endif
     }
 
@@ -465,11 +465,11 @@ class WaveWriter
     {
     #if defined(WDL_LITTLE_ENDIAN) || defined(WDL_BIG_ENDIAN)
       WDL_BSWAP64_IF_BE(a);
-      return fwrite(&a,1,8,fp);
+      return (int)fwrite(&a,1,8,fp);
     #else
       unsigned char buf[8], *p = buf;
       for (int x = 0; x < 64; x += 8) *p++=(a>>x)&0xff;
-      return fwrite(buf,1,8,fp);
+      return (int)fwrite(buf,1,8,fp);
     #endif
     }
 
