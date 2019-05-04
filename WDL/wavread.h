@@ -92,7 +92,7 @@ public:
 			if (id == fmt && size >= 16)
 			{
 				size -= 16;
-				int ok = fread(buf, 16, 1, m_fp);
+				int ok = (int)fread(buf, 16, 1, m_fp);
 
 				const int format = geti16(buf);
 				m_nch = geti16(buf + 2);
@@ -204,9 +204,9 @@ public:
 		else if (m_bps == 32)
 		{
 		#ifdef WDL_LITTLE_ENDIAN
-			i = fread(samples, 4, n, m_fp);
+			i = (unsigned int)fread(samples, 4, n, m_fp);
 		#else
-			n = fread(samples, 4, n, m_fp);
+			n = (unsigned int)fread(samples, 4, n, m_fp);
 			for (; i < n; ++i)
 			{
 				const unsigned int a = geti32(samples);
@@ -277,9 +277,9 @@ public:
 		else if (m_bps == 64)
 		{
 		#ifdef WDL_LITTLE_ENDIAN
-			i = fread(samples, 8, n, m_fp);
+			i = (unsigned int)fread(samples, 8, n, m_fp);
 		#else
-			n = fread(samples, 8, n, m_fp);
+			n = (unsigned int)fread(samples, 8, n, m_fp);
 			for (; i < n; ++i)
 			{
 				const WDL_UINT64 a = geti64(samples);
