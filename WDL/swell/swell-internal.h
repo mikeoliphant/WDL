@@ -299,6 +299,7 @@ typedef struct WindowPropRec
   char m_allow_nomiddleman;
   id m_lastTopLevelOwner; // save a copy of the owner, if any
   id m_access_cacheptrs[6];
+  const char *m_classname;
 }
 - (id)initChild:(SWELL_DialogResourceIndex *)resstate Parent:(NSView *)parent dlgProc:(DLGPROC)dlgproc Param:(LPARAM)par;
 - (LRESULT)onSwellMessage:(UINT)msg p1:(WPARAM)wParam p2:(LPARAM)lParam;
@@ -332,6 +333,7 @@ typedef struct WindowPropRec
 -(int)swellSetProp:(const char *)name value:(void *)val ;
 -(NSOpenGLContext *)swellGetGLContext;
 - (void) setEnabledSwellNoFocus;
+-(const char *)getSwellClass;
 
 // NSAccessibility
 
@@ -810,8 +812,10 @@ typedef struct
 #endif
   int refcnt;
 
+#ifndef SWELL_EXTRA_MINIMAL
   int (*SWELL_dllMain)(HINSTANCE, DWORD,LPVOID); //last parm=SWELLAPI_GetFunc
   BOOL (*dllMain)(HINSTANCE, DWORD, LPVOID);
+#endif
   void *lastSymbolRequested;
 } SWELL_HINSTANCE;
 
@@ -825,6 +829,7 @@ enum
   INTERNAL_OBJECT_EXTERNALSOCKET, // socket not owned by us
   INTERNAL_OBJECT_SOCKETEVENT,
   INTERNAL_OBJECT_NSTASK, 
+  INTERNAL_OBJECT_PID,
   INTERNAL_OBJECT_END
 };
 
@@ -879,6 +884,12 @@ typedef struct
   void *task; 
 } SWELL_InternalObjectHeader_NSTask;
 
+typedef struct
+{
+  SWELL_InternalObjectHeader hdr;
+  int pid;
+  int done, result;
+} SWELL_InternalObjectHeader_PID;
 
 bool IsRightClickEmulateEnabled();
 

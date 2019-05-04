@@ -821,12 +821,14 @@ SWELL_API_DEFINE(void,SWELL_EnsureMultithreadedCocoa,())
 SWELL_API_DEFINE(void *, SWELL_InitAutoRelease,())
 SWELL_API_DEFINE(void, SWELL_QuitAutoRelease,(void *p))
 SWELL_API_DEFINE(int,SWELL_TerminateProcess,(HANDLE hand))
-SWELL_API_DEFINE(int,SWELL_GetProcessExitCode,(HANDLE hand))
 SWELL_API_DEFINE(HANDLE,SWELL_CreateProcessIO,(const char *exe, int nparams, const char **params, bool redirectIO))
 SWELL_API_DEFINE(int,SWELL_ReadWriteProcessIO,(HANDLE, int w/*stdin,stdout,stderr*/, char *buf, int bufsz))
+#else
+SWELL_API_DEFINE(HANDLE,SWELL_CreateProcessFromPID,(int pid))
 #endif
 
 SWELL_API_DEFINE(HANDLE,SWELL_CreateProcess,(const char *exe, int nparams, const char **params))
+SWELL_API_DEFINE(int,SWELL_GetProcessExitCode,(HANDLE hand))
 
 
 SWELL_API_DEFINE(HINSTANCE,LoadLibraryGlobals,(const char *fileName, bool symbolsAsGlobals))
@@ -1067,5 +1069,8 @@ SWELL_API_DEFINE(bool, SWELL_ChooseFont, (HWND, LOGFONT*))
 #endif
 
 SWELL_API_DEFINE(bool, IsWindowEnabled, (HWND))
+
+SWELL_API_DEFINE(int, GetClassName, (HWND, char *, int)) // only partially implemented, if using custom control creators they should call SWELL_SetClassName() to set the class name (reading class name is desired)
+SWELL_API_DEFINE(void, SWELL_SetClassName, (HWND, const char*)) // must pass a static string!
 
 #endif // _WDL_SWELL_H_API_DEFINED_
