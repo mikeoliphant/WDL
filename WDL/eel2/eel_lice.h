@@ -1571,8 +1571,6 @@ static HMENU PopulateMenuFromStr(const char** str, int* startid)
 
 EEL_F eel_lice_state::gfx_showmenu(void* opaque, EEL_F** parms, int nparms)
 {
-  if (!hwnd_standalone) return 0.0;
-
   const char* p=EEL_STRING_GET_FOR_INDEX(parms[0][0], NULL);
   if (!p || !p[0]) return 0.0;
 
@@ -1582,8 +1580,25 @@ EEL_F eel_lice_state::gfx_showmenu(void* opaque, EEL_F** parms, int nparms)
   int ret=0;
   if (hm)
   {
-    POINT pt = { (short)*m_gfx_x, (short)*m_gfx_y };
-    ClientToScreen(hwnd_standalone, &pt);
+    POINT pt;
+    if (hwnd_standalone)
+    {
+#ifdef __APPLE__
+      if (*m_gfx_ext_retina > 1.0) 
+      { 
+        pt.x = (short)(*m_gfx_x * .5);
+        pt.y = (short)(*m_gfx_y * .5);
+      }
+      else
+#endif
+      {
+        pt.x = (short)*m_gfx_x;
+        pt.y = (short)*m_gfx_y;
+      }
+      ClientToScreen(hwnd_standalone, &pt);
+    }
+    else
+      GetCursorPos(&pt);
     ret=TrackPopupMenu(hm, TPM_NONOTIFY|TPM_RETURNCMD, pt.x, pt.y, 0, hwnd_standalone, NULL);
     DestroyMenu(hm);
   }
@@ -1896,10 +1911,8 @@ void eel_lice_register()
 
 #ifdef _WIN32
 static HINSTANCE eel_lice_hinstance;
-static const char *eel_lice_standalone_classname;
 #endif
-
-HWND eel_lice_standalone_owner;
+static const char *eel_lice_standalone_classname;
 
 #ifdef EEL_LICE_WANT_STANDALONE_UPDATE
 static EEL_F * NSEEL_CGEN_CALL _gfx_update(void *opaque, EEL_F *n)
@@ -2119,7 +2132,10 @@ HWND eel_lice_state::create_wnd(HWND par, int isChild)
   return CreateWindowEx(WS_EX_ACCEPTFILES,eel_lice_standalone_classname,"",
                         isChild ? (WS_CHILD|WS_TABSTOP) : (WS_POPUP|WS_CAPTION|WS_THICKFRAME|WS_SYSMENU),CW_USEDEFAULT,CW_USEDEFAULT,100,100,par,NULL,eel_lice_hinstance,this);
 #else
-  return SWELL_CreateDialog(NULL,isChild ? NULL : ((const char *)(INT_PTR)0x400001),par,(DLGPROC)eel_lice_wndproc,(LPARAM)this);
+  HWND h = SWELL_CreateDialog(NULL,isChild ? NULL : ((const char *)(INT_PTR)0x400001),par,(DLGPROC)eel_lice_wndproc,(LPARAM)this);
+  if (h)
+    SWELL_SetClassName(h,eel_lice_standalone_classname);
+  return h;
 #endif
 }
 
@@ -2648,12 +2664,12 @@ LRESULT WINAPI eel_lice_wndproc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
 
 void eel_lice_register_standalone(HINSTANCE hInstance, const char *classname, HWND hwndPar, HICON icon)
 {
+  eel_lice_standalone_classname=classname && *classname ? classname : "EEL_LICE_gfx_standalone";
 #ifdef _WIN32
   static bool reg;
   if (!reg)
   {
     eel_lice_hinstance=hInstance;
-    eel_lice_standalone_classname=classname && *classname ? classname : "EEL_LICE_gfx_standalone";
     WNDCLASS wc={CS_DBLCLKS,eel_lice_wndproc,0,0,hInstance,icon,LoadCursor(NULL,IDC_ARROW), NULL, NULL,eel_lice_standalone_classname};
     RegisterClass(&wc);
     reg = true;

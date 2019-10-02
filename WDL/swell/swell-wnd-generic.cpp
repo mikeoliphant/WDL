@@ -660,15 +660,16 @@ void SetWindowPos(HWND hwnd, HWND zorder, int x, int y, int cx, int cy, int flag
     if (reposflag&3) 
     {
       hwnd->m_position = f;
-      if (reposflag&2) SendMessage(hwnd,WM_SIZE,0,0);
     }
 
     if (hwnd->m_oswindow && !hwnd->m_oswindow_fullscreen)
     {
       swell_oswindow_resize(hwnd->m_oswindow,reposflag,f);
+      if (reposflag&2) SendMessage(hwnd,WM_SIZE,0,0);
     }
     else
     {
+      if (reposflag&2) SendMessage(hwnd,WM_SIZE,0,0);
       InvalidateRect(hwnd->m_parent ? hwnd->m_parent : hwnd,NULL,FALSE);
     }
   }
@@ -7325,10 +7326,10 @@ int GetSystemMetrics(int p)
          SWELL_GetViewPort(&r, NULL, false);
          return p==SM_CXSCREEN ? r.right-r.left : r.bottom-r.top; 
       }
-    case SM_CXHSCROLL: return 16;
-    case SM_CYHSCROLL: return 16;
-    case SM_CXVSCROLL: return 16;
-    case SM_CYVSCROLL: return 16;
+    case SM_CXHSCROLL:
+    case SM_CYHSCROLL:
+    case SM_CXVSCROLL:
+    case SM_CYVSCROLL: return g_swell_ctheme.smscrollbar_width;
   }
   return 0;
 }
