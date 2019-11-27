@@ -258,7 +258,7 @@ public:
   NSEEL_VMCTX m_vmref;
   void *m_user_ctx;
 
-  int setup_frame(HWND hwnd, RECT r, int _mouse_x=0, int _mouse_y=0); // mouse_x/y used only if hwnd is NULL
+  int setup_frame(HWND hwnd, RECT r, int _mouse_x=0, int _mouse_y=0, int has_dpi=0); // mouse_x/y used only if hwnd is NULL
   void finish_draw();
 
   void gfx_lineto(EEL_F xpos, EEL_F ypos, EEL_F aaflag);
@@ -1743,7 +1743,7 @@ void eel_lice_state::gfx_drawnumber(EEL_F n, EEL_F ndigits)
                            getCurColor(),getCurMode(),(float)*m_gfx_a,DT_NOCLIP,NULL,NULL);
 }
 
-int eel_lice_state::setup_frame(HWND hwnd, RECT r, int _mouse_x, int _mouse_y)
+int eel_lice_state::setup_frame(HWND hwnd, RECT r, int _mouse_x, int _mouse_y, int has_dpi)
 {
   int use_w = r.right - r.left;
   int use_h = r.bottom - r.top;
@@ -1756,7 +1756,11 @@ int eel_lice_state::setup_frame(HWND hwnd, RECT r, int _mouse_x, int _mouse_y)
   }
   *m_mouse_x=pt.x-r.left;
   *m_mouse_y=pt.y-r.top;
-  if (*m_gfx_ext_retina > 0.0)
+  if (has_dpi>0 && *m_gfx_ext_retina > 0.0)
+  {
+    *m_gfx_ext_retina = has_dpi/256.0;
+  }
+  else if (*m_gfx_ext_retina > 0.0)
   {
 #ifdef __APPLE__
     *m_gfx_ext_retina = (hwnd && SWELL_IsRetinaHWND(hwnd)) ? 2.0 : 1.0;
@@ -2120,7 +2124,7 @@ extern "C"
 {
   void *objc_getClass(const char *p);
   void *sel_getUid(const char *p);
-  void *objc_msgSend(void *, void *, ...);
+  void objc_msgSend(void);
 };
 #endif
 
@@ -2134,7 +2138,10 @@ HWND eel_lice_state::create_wnd(HWND par, int isChild)
 #else
   HWND h = SWELL_CreateDialog(NULL,isChild ? NULL : ((const char *)(INT_PTR)0x400001),par,(DLGPROC)eel_lice_wndproc,(LPARAM)this);
   if (h)
+  {
     SWELL_SetClassName(h,eel_lice_standalone_classname);
+    SWELL_EnableMetal(h,1);
+  }
   return h;
 #endif
 }
@@ -2191,13 +2198,36 @@ static EEL_F NSEEL_CGEN_CALL _gfx_init(void *opaque, INT_PTR np, EEL_F **parms)
 #endif
   if (ctx)
   {
-    bool wantShow=false;
+    bool wantShow=false, wantResize=true;
+    int sug_w = np > 1 ? (int)parms[1][0] : 640;
+    int sug_h = np > 2 ? (int)parms[2][0] : 480;
+    if (sug_w <1 && sug_h < 1 && ctx->hwnd_standalone) 
+    {
+      RECT r;
+      GetClientRect(ctx->hwnd_standalone,&r);
+      sug_w = r.right;
+      sug_h = r.bottom;
+    }
+    #ifdef EEL_LICE_WANTDOCK
+    const int pos_offs = 4;
+    #else
+    const int pos_offs = 3;
+    #endif
+
+    if (sug_w < 16) sug_w=16;
+    else if (sug_w > 2048) sug_w=2048;
+    if (sug_h < 16) sug_h=16;
+    else if (sug_h > 1600) sug_h=1600;
+
     if (!ctx->hwnd_standalone)
     {
       #ifdef __APPLE__
-        void *nsapp=objc_msgSend( objc_getClass("NSApplication"), sel_getUid("sharedApplication"));
-        objc_msgSend(nsapp,sel_getUid("setActivationPolicy:"), 0);
-        objc_msgSend(nsapp,sel_getUid("activateIgnoringOtherApps:"), 1);
+        void *(*send_msg)(void *, void *) = (void *(*)(void *, void *))objc_msgSend;
+        void (*send_msg_longparm)(void *, void *, long) = (void (*)(void *, void *, long))objc_msgSend; // long = NSInteger
+
+        void *nsapp=send_msg( objc_getClass("NSApplication"), sel_getUid("sharedApplication"));
+        send_msg_longparm(nsapp,sel_getUid("setActivationPolicy:"), 0);
+        send_msg_longparm(nsapp,sel_getUid("activateIgnoringOtherApps:"), 1);
 
       #endif
 
@@ -2214,20 +2244,6 @@ static EEL_F NSEEL_CGEN_CALL _gfx_init(void *opaque, INT_PTR np, EEL_F **parms)
 
       if (ctx->hwnd_standalone)
       {
-        int sug_w = np > 1 ? (int)parms[1][0] : 640;
-        int sug_h = np > 2 ? (int)parms[2][0] : 480;
-        
-        if (sug_w < 16) sug_w=16;
-        else if (sug_w > 2048) sug_w=2048;
-        if (sug_h < 16) sug_h=16;
-        else if (sug_h > 1600) sug_w=1600;
-
-        #ifdef EEL_LICE_WANTDOCK
-          const int pos_offs = 4;
-        #else
-          const int pos_offs = 3;
-        #endif
-
         int px=0,py=0;
         if (np >= pos_offs+2)
         {
@@ -2264,7 +2280,10 @@ static EEL_F NSEEL_CGEN_CALL _gfx_init(void *opaque, INT_PTR np, EEL_F **parms)
           }
         #endif
       }
+      wantResize=false;
     }
+    if (!ctx->hwnd_standalone) return 0;
+
     if (np>0)
     {
       EEL_STRING_MUTEXLOCK_SCOPE
@@ -2272,12 +2291,40 @@ static EEL_F NSEEL_CGEN_CALL _gfx_init(void *opaque, INT_PTR np, EEL_F **parms)
       #ifdef EEL_STRING_DEBUGOUT
         if (!title) EEL_STRING_DEBUGOUT("gfx_init: invalid string identifier %f",parms[0][0]);
       #endif
-      if (title&&*title) SetWindowText(ctx->hwnd_standalone,title);
+      if (title&&*title)
+      {
+        SetWindowText(ctx->hwnd_standalone,title);
+        wantResize=false; // ignore resize if we're setting title
+      }
     }
-
     if (wantShow)
       ShowWindow(ctx->hwnd_standalone,SW_SHOW);
-    return !!ctx->hwnd_standalone;
+    if (wantResize && np>2 && !(GetWindowLong(ctx->hwnd_standalone,GWL_STYLE)&WS_CHILD))
+    {
+      RECT r1,r2;
+      GetWindowRect(ctx->hwnd_standalone,&r1);
+      GetClientRect(ctx->hwnd_standalone,&r2);
+      sug_w += (r1.right-r1.left) - r2.right;
+      sug_h += abs(r1.bottom-r1.top) - r2.bottom;
+
+      int px=0,py=0;
+      const bool do_move=(np >= pos_offs+2);
+      if (do_move)
+      {
+        px = (int) floor(parms[pos_offs][0] + 0.5);
+        py = (int) floor(parms[pos_offs+1][0] + 0.5);
+#ifdef EEL_LICE_VALIDATE_RECT_ON_SCREEN
+        RECT r = {px,py,px+sug_w,py+sug_h};
+        EEL_LICE_VALIDATE_RECT_ON_SCREEN(r);
+        px=r.left; py=r.top; sug_w = r.right-r.left; sug_h = r.bottom-r.top;
+#endif
+      }
+      const bool do_size = sug_w != r2.right || sug_h != r2.bottom;
+      if (do_size || do_move)
+        SetWindowPos(ctx->hwnd_standalone,NULL,px,py,sug_w,sug_h,
+            (do_size ? 0 : SWP_NOSIZE)|(do_move? 0:SWP_NOMOVE)|SWP_NOZORDER|SWP_NOACTIVATE);
+    }
+    return 1;
   }
   return 0;  
 }
