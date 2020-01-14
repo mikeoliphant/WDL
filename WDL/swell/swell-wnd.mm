@@ -1643,13 +1643,12 @@ void DestroyWindow(HWND hwnd)
     }
     else 
     {
-      if (pw && [NSApp keyWindow] == pw)
+      if (pw)
       {
         id foc=[pw firstResponder];
         if (foc && (foc == pid || IsChild((HWND)pid,(HWND)foc)))
         {
-          HWND h=GetParent((HWND)pid);
-          if (h) SetFocus(h);
+          [pw makeFirstResponder:nil];
         }
       }
       [(NSView *)pid removeFromSuperview];
@@ -1688,15 +1687,7 @@ void EnableWindow(HWND hwnd, int enable)
     else
       [bla setEnabled:(enable?YES:NO)];
     if ([bla isKindOfClass:[SWELL_TextField class]])
-    {
-      NSTextField* txt = (NSTextField*)bla;
-      if (![txt isEditable] && ![txt isBordered] && ![txt drawsBackground]) // looks like a static text control
-      {
-        NSColor* col = [txt textColor];
-        float alpha = (enable ? 1.0f : 0.5f);
-        [txt setTextColor:[col colorWithAlphaComponent:alpha]];
-      }
-    }    
+      [(SWELL_TextField*)bla initColors:-1];
   }
   SWELL_END_TRY(;)
 }
@@ -1720,7 +1711,7 @@ void SetFocus(HWND hwnd) // these take NSWindow/NSView, and return NSView *
   else if ([r isKindOfClass:[NSView class]])
   {
     NSWindow *wnd=[(NSView *)r window];
-    if (wnd)
+    if (wnd && [r acceptsFirstResponder])
     {
       [wnd makeFirstResponder:r];
       if ([wnd isVisible])
@@ -2834,13 +2825,12 @@ void ShowWindow(HWND hwnd, int cmd)
     case SW_HIDE:
       {
         NSWindow *pw=[pid window];
-        if (pw && [NSApp keyWindow] == pw)
+        if (pw)
         {
           id foc=[pw firstResponder];
           if (foc && (foc == pid || IsChild((HWND)pid,(HWND)foc)))
           {
-            HWND h=GetParent((HWND)pid);
-            if (h) SetFocus(h);
+            [pw makeFirstResponder:nil];
           }
         }
         if (![((NSView *)pid) isHidden])
@@ -3145,7 +3135,6 @@ STANDARD_CONTROL_NEEDSDISPLAY_IMPL("Edit")
 }
 @end
 
-
 @implementation SWELL_TextField
 STANDARD_CONTROL_NEEDSDISPLAY_IMPL([self isSelectable] ? "Edit" : "static")
 
@@ -3154,6 +3143,46 @@ STANDARD_CONTROL_NEEDSDISPLAY_IMPL([self isSelectable] ? "Edit" : "static")
   BOOL didBecomeFirstResponder = [super becomeFirstResponder];
   if (didBecomeFirstResponder) SendMessage(GetParent((HWND)self),WM_COMMAND,[self tag]|(EN_SETFOCUS<<16),(LPARAM)self);
   return didBecomeFirstResponder;
+}
+- (void)initColors:(int)darkmode
+{
+  if (darkmode >= 0)
+  {
+    m_ctlcolor_set = false;
+    m_last_dark_mode = darkmode ? 1 : 0;
+  }
+
+  if ([self isEditable])
+  {
+    if (SWELL_osx_is_dark_mode(1))
+    {
+      if (m_last_dark_mode)
+        [self setBackgroundColor:[NSColor windowBackgroundColor]];
+      else
+        [self setBackgroundColor:[NSColor textBackgroundColor]];
+    }
+  }
+  else if (![self isBordered] && ![self drawsBackground]) // looks like a static text control
+  {
+    NSColor *col;
+    if (!m_ctlcolor_set && SWELL_osx_is_dark_mode(1))
+      col = [NSColor textColor];
+    else
+      col = [self textColor];
+
+    float alpha = ([self isEnabled] ? 1.0f : 0.5f);
+    [self setTextColor:[col colorWithAlphaComponent:alpha]];
+  }
+}
+
+- (void) drawRect:(NSRect)r
+{
+  if (!m_ctlcolor_set && SWELL_osx_is_dark_mode(1))
+  {
+    const bool m = SWELL_osx_is_dark_mode(0);
+    if (m != m_last_dark_mode) [self initColors:m];
+  }
+  [super drawRect:r];
 }
 @end
 
@@ -3169,7 +3198,8 @@ HWND SWELL_MakeEditField(int idx, int x, int y, int w, int h, int flags)
       [obj setFont:[NSFont systemFontOfSize:TRANSFORMFONTSIZE]];
     [obj setTag:idx];
     [obj setDelegate:ACTIONTARGET];
-  
+    [obj setRichText:NO];
+
     [obj setHorizontallyResizable:NO];
     
     if (flags & WS_VSCROLL)
@@ -3225,6 +3255,9 @@ HWND SWELL_MakeEditField(int idx, int x, int y, int w, int h, int flags)
   if (m_transform.size.width < minwidfontadjust)
     [obj setFont:[NSFont systemFontOfSize:TRANSFORMFONTSIZE]];
   
+  if ([obj isKindOfClass:[SWELL_TextField class]])
+    [(SWELL_TextField *)obj initColors:SWELL_osx_is_dark_mode(0)];
+
   NSCell* cell = [obj cell];  
   if (flags&ES_CENTER) [cell setAlignment:NSCenterTextAlignment];
   else if (flags&ES_RIGHT) [cell setAlignment:NSRightTextAlignment];
@@ -4117,7 +4150,7 @@ void ListView_SetItemText(HWND h, int ipos, int cpos, const char *txt)
   }
   else p->m_vals.Add(strdup(txt));
     
-  [tv reloadData];
+  [tv setNeedsDisplay];
 }
 
 int ListView_GetNextItem(HWND h, int istart, int flags)
@@ -5058,6 +5091,21 @@ LRESULT DefWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
           if (d) SWELL_DoDialogColorUpdates(hwnd,d,true);
         }
       }
+    }
+  }
+  else if (msg == WM_CTLCOLORSTATIC && wParam)
+  {
+    if (SWELL_osx_is_dark_mode(0))
+    {
+      static HBRUSH br;
+      if (!br)
+      {
+        br = CreateSolidBrush(RGB(0,0,0)); // todo hm
+        br->color = [[NSColor windowBackgroundColor] CGColor];
+        CFRetain(br->color);
+      }
+      SetTextColor((HDC)wParam,RGB(255,255,255));
+      return (LRESULT)br;
     }
   }
   return 0;

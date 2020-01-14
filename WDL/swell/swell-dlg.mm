@@ -379,6 +379,8 @@ void SWELL_DoDialogColorUpdates(HWND hwnd, DLGPROC d, bool isUpdate)
             }
             else
             {
+              if ([ch isKindOfClass:[SWELL_TextField class]])
+                ((SWELL_TextField *)ch)->m_ctlcolor_set = true;
               [(NSTextField*)ch setTextColor:staticFg]; 
             }
           }
@@ -1561,8 +1563,8 @@ static int DelegateMouseMove(NSView *view, NSEvent *theEvent)
 
   RECT r = {0,0, (int)bounds.size.width, (int)bounds.size.height };
 
-  double x_sc = r.right / (double)tex.width;
-  double y_sc = r.bottom / (double)tex.height;
+  const float x_sc = (float) (r.right / (double)tex.width);
+  const float y_sc = (float) (r.bottom / (double)tex.height);
 
   vector_float2 quads[] =
   {
@@ -1586,7 +1588,7 @@ static int DelegateMouseMove(NSView *view, NSEvent *theEvent)
   id<MTLRenderCommandEncoder> renderEncoder = [commandBuffer renderCommandEncoderWithDescriptor:renderPassDescriptor];
 
   // Set the region of the drawable to draw into.
-  [renderEncoder setViewport:(MTLViewport){0.0, 0.0, r.right,r.bottom, -1.0, 1.0 }];
+  [renderEncoder setViewport:(MTLViewport){0.0, 0.0, (double)r.right,(double)r.bottom, -1.0, 1.0 }];
 
   [renderEncoder setRenderPipelineState:m_metal_pipelineState];
   [renderEncoder setVertexBytes:quads length:sizeof(quads) atIndex:0];
@@ -1798,7 +1800,12 @@ static void MakeGestureInfo(NSEvent* evt, GESTUREINFO* gi, HWND hwnd, int type)
 
 - (BOOL)becomeFirstResponder 
 {
-  if (m_enabled <= 0 || ![super becomeFirstResponder]) return NO;
+  int en = m_enabled;
+  if (en < 0)
+  {
+    if ([[self window] contentView]==self) en = 1; // accept focus if we're enabled-without-focus and the contentview
+  }
+  if (en <= 0 || ![super becomeFirstResponder]) return NO;
   SendMessage((HWND)self, WM_MOUSEACTIVATE, 0, 0);
   return YES;
 }
@@ -1815,6 +1822,11 @@ static void MakeGestureInfo(NSEvent* evt, GESTUREINFO* gi, HWND hwnd, int type)
 
 - (BOOL)acceptsFirstResponder 
 {
+  if (m_enabled < 0)
+  {
+    // accept focus if we're enabled-without-focus and the contentview
+    if ([[self window] contentView]==self) return YES;
+  }
   return m_enabled > 0?YES:NO;
 }
 
@@ -3976,7 +3988,7 @@ void SWELL_Metal_Blit(void *_tex, unsigned char *buf, int x, int y, int w, int h
 
   if (w<1 || h<1) return;
 
-  MTLRegion region = { { x, y, 0 }, {w,h, 1} };
+  MTLRegion region = { { (NSUInteger)x, (NSUInteger)y, 0 }, {(NSUInteger)w,(NSUInteger)h, 1} };
   [tex replaceRegion:region mipmapLevel:0 withBytes:buf bytesPerRow:span*4];
 }
 

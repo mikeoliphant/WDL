@@ -55,7 +55,12 @@ static int SWELL_GDI_GetOSXVersion()
   {
     if (NSAppKitVersionNumber >= 1266.0) 
     {
-      v=0x10a0; // 10.10+ Gestalt(gsv) return 0x109x, so we bump this to 0x10a0
+      if (NSAppKitVersionNumber >= 1670.0)  // unsure if this is correct (10.14.1 is 1671.1)
+        v = 0x10d0;
+      else if (NSAppKitVersionNumber >= 1404.0)
+        v = 0x10b0;
+      else
+        v=0x10a0; // 10.10+ Gestalt(gsv) return 0x109x, so we bump this to 0x10a0
     }
     else 
     {
@@ -1773,8 +1778,20 @@ void SWELL_FillDialogBackground(HDC hdc, const RECT *r, int level)
   CGContextRef ctx=(CGContextRef)SWELL_GetCtxGC(hdc);
   if (ctx)
   {
-  // level 0 for now = this
-    HIThemeSetFill(kThemeBrushDialogBackgroundActive,NULL,ctx,kHIThemeOrientationNormal);
+    bool ok = false;
+    if (SWELL_GDI_GetOSXVersion()>=0x10d0)
+    {
+      NSColor *c = [NSColor windowBackgroundColor];
+      if ([c respondsToSelector:@selector(CGColor)])
+      {
+        CGContextSetFillColorWithColor(ctx, [c CGColor]);
+        ok = true;
+      }
+    }
+
+    if (!ok)
+      HIThemeSetFill(kThemeBrushDialogBackgroundActive,NULL,ctx,kHIThemeOrientationNormal);
+
     CGRect rect=CGRectMake(r->left,r->top,r->right-r->left,r->bottom-r->top);
     CGContextFillRect(ctx,rect);	         
   }
@@ -1960,6 +1977,20 @@ int AddFontResourceEx(LPCTSTR str, DWORD fl, void *pdv)
   CFRelease(s);
   CFRelease(r);
   return v;
+}
+
+bool SWELL_osx_is_dark_mode(int mode) // mode=0 for enabled, 1=allowed
+{
+  static char c;
+  if (!c)
+  {
+    NSUserDefaults *def = SWELL_GetOSXVersion() >= 0x10d0 ? [NSUserDefaults standardUserDefaults] : NULL;
+    c = (def && [def objectForKey:@"NSRequiresAquaSystemAppearance"] && [def boolForKey:@"NSRequiresAquaSystemAppearance"] == NO) ? 1 : -1;
+  }
+  if (c<0) return false;
+  if (mode == 1) return true;
+
+  return [[[NSUserDefaults standardUserDefaults] stringForKey:@"AppleInterfaceStyle"] isEqualToString:@"Dark"];
 }
 
 

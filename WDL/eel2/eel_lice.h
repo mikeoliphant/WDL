@@ -2304,6 +2304,8 @@ static EEL_F NSEEL_CGEN_CALL _gfx_init(void *opaque, INT_PTR np, EEL_F **parms)
       RECT r1,r2;
       GetWindowRect(ctx->hwnd_standalone,&r1);
       GetClientRect(ctx->hwnd_standalone,&r2);
+      const bool do_size = sug_w != r2.right || sug_h != r2.bottom;
+
       sug_w += (r1.right-r1.left) - r2.right;
       sug_h += abs(r1.bottom-r1.top) - r2.bottom;
 
@@ -2319,7 +2321,6 @@ static EEL_F NSEEL_CGEN_CALL _gfx_init(void *opaque, INT_PTR np, EEL_F **parms)
         px=r.left; py=r.top; sug_w = r.right-r.left; sug_h = r.bottom-r.top;
 #endif
       }
-      const bool do_size = sug_w != r2.right || sug_h != r2.bottom;
       if (do_size || do_move)
         SetWindowPos(ctx->hwnd_standalone,NULL,px,py,sug_w,sug_h,
             (do_size ? 0 : SWP_NOSIZE)|(do_move? 0:SWP_NOMOVE)|SWP_NOZORDER|SWP_NOACTIVATE);
@@ -2643,6 +2644,19 @@ LRESULT WINAPI eel_lice_wndproc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
 #ifdef _WIN32
     case WM_GETDLGCODE:
       if (GetWindowLong(hwnd,GWL_STYLE)&WS_CHILD) return DLGC_WANTALLKEYS;
+    break;
+    case 0x02E0: //WM_DPICHANGED
+      if (!(GetWindowLong(hwnd,GWL_STYLE)&WS_CHILD))
+      {
+        RECT *prcNewWindow = (RECT*)lParam;
+        SetWindowPos(hwnd,
+          NULL,
+          prcNewWindow ->left,
+          prcNewWindow ->top,
+          prcNewWindow->right - prcNewWindow->left,
+          prcNewWindow->bottom - prcNewWindow->top,
+          SWP_NOZORDER | SWP_NOACTIVATE);
+      }
     break;
 #endif
     case WM_SIZE:
