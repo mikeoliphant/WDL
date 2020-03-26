@@ -31,6 +31,7 @@
 */
 
 
+#include <math.h>
 #include "heapbuf.h"
 
 
@@ -388,6 +389,8 @@ public:
         #endif
       }
     }
+    double damp=m_damp*0.4;
+    if (damp > 0.0 && sc != 1.0) damp = exp(log(damp) / sc);
     for (x = 0; x < sizeof(wdl_verb__combtunings)/sizeof(wdl_verb__combtunings[0]); x ++)
     {
       m_combs[x][0].setsize((int) (wdl_verb__combtunings[x] * sc));
@@ -398,9 +401,9 @@ public:
       #ifndef WDL_REVERB_MONO
       m_combs[x][1].setfeedback(m_roomsize);
       #endif
-      m_combs[x][0].setdamp(m_damp*0.4);
+      m_combs[x][0].setdamp(damp);
       #ifndef WDL_REVERB_MONO
-      m_combs[x][1].setdamp(m_damp*0.4);
+      m_combs[x][1].setdamp(damp);
       #endif
       if (doclear)
       {
