@@ -808,7 +808,11 @@ static int DelegateMouseMove(NSView *view, NSEvent *theEvent)
 }
 - (void)tableViewSelectionDidChange:(NSNotification *)aNotification
 {
-  NSTableView *sender=[aNotification object];
+  extern int swell_ignore_listview_changes;
+  if (!swell_ignore_listview_changes)
+  {
+      swell_ignore_listview_changes++;
+      NSTableView *sender=[aNotification object];
       if ([sender respondsToSelector:@selector(getSwellNotificationMode)] && [(SWELL_ListView*)sender getSwellNotificationMode])
       {
         if (m_wndproc&&!m_hashaddestroy) m_wndproc((HWND)self,WM_COMMAND,(int)[sender tag] | (LBN_SELCHANGE<<16),(LPARAM)sender);
@@ -817,8 +821,9 @@ static int DelegateMouseMove(NSView *view, NSEvent *theEvent)
       {
         NMLISTVIEW nmhdr={{(HWND)sender,(UINT_PTR)[sender tag],LVN_ITEMCHANGED},(int)[sender selectedRow],0};
         if (m_wndproc&&!m_hashaddestroy) m_wndproc((HWND)self,WM_NOTIFY,(int)[sender tag],(LPARAM)&nmhdr);
-        
       }
+      swell_ignore_listview_changes--;
+  }
 }
 
 - (void)tableView:(NSTableView *)tableView didClickTableColumn:(NSTableColumn *)tableColumn
@@ -1152,25 +1157,24 @@ static int DelegateMouseMove(NSView *view, NSEvent *theEvent)
   
   [self setHidden:YES];
   
-  
-  if ([parent isKindOfClass:[NSSavePanel class]]||[parent isKindOfClass:[NSOpenPanel class]])
+  if ([parent isKindOfClass:[NSWindow class]])
   {
-    [(NSSavePanel *)parent setAccessoryView:self];
-    [self setHidden:NO];
-  }
-  else if ([parent isKindOfClass:[NSColorPanel class]])
-  {
-    [(NSColorPanel *)parent setAccessoryView:self];
-    [self setHidden:NO];
-  }  
-  else if ([parent isKindOfClass:[NSFontPanel class]])
-  {
-    [(NSFontPanel *)parent setAccessoryView:self];
-    [self setHidden:NO];
-  }    
-  else if ([parent isKindOfClass:[NSWindow class]])
-  {
-    [(NSWindow *)parent setContentView:self];
+    if ([parent isKindOfClass:[NSPanel class]] &&
+        [parent respondsToSelector:@selector(setAccessoryView:)])
+    {
+      [(NSOpenPanel *)parent setAccessoryView:self];
+      if ([parent isKindOfClass:[NSOpenPanel class]] ||
+          [[parent className] isEqualToString:@"NSLocalOpenPanel"])
+      {
+        if ([parent respondsToSelector:@selector(setAccessoryViewDisclosed:)])
+          [(NSOpenPanel *)parent setAccessoryViewDisclosed:YES];
+      }
+      [self setHidden:NO];
+    }
+    else
+    {
+      [(NSWindow *)parent setContentView:self];
+    }
   }
   else
   {
@@ -2679,13 +2683,25 @@ HWND SWELL_CreateDialog(SWELL_DialogResourceIndex *reshead, const char *resid, H
   if (!p&&resid) return 0;
   
   NSView *parview=NULL;
-  if (parent && ([(id)parent isKindOfClass:[NSView class]] || 
-                 [(id)parent isKindOfClass:[NSSavePanel class]] || 
-                 [(id)parent isKindOfClass:[NSOpenPanel class]] ||
-                 [(id)parent isKindOfClass:[NSColorPanel class]] || 
-                 [(id)parent isKindOfClass:[NSFontPanel class]]
-                 )) parview=(NSView *)parent;
-  else if (parent && [(id)parent isKindOfClass:[NSWindow class]])  parview=(NSView *)[(id)parent contentView];
+  if (parent)
+  {
+    if ([(id)parent isKindOfClass:[NSView class]])
+    {
+      parview = (NSView *)parent;
+    }
+    else if ([(id)parent isKindOfClass:[NSWindow class]])
+    {
+      if ([(id)parent isKindOfClass:[NSPanel class]] &&
+          [(id)parent respondsToSelector:@selector(setAccessoryView:)])
+      {
+        parview=(NSView *)parent;
+      }
+      else
+      {
+        parview=(NSView *)[(NSWindow *)parent contentView];
+      }
+    }
+  }
   
   if ((!p || (p->windowTypeFlags&SWELL_DLG_WS_CHILD)) && parview && (p || !forceNonChild))
   {
@@ -3755,7 +3771,7 @@ static bool mtl_init()
         )
     {
       NSArray *ar = __MTLCopyAllDevices();
-      int cnt = [ar count];
+      NSUInteger cnt = [ar count];
       [ar release];
       if (cnt>0)
       {

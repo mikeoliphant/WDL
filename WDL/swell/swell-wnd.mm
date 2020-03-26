@@ -70,6 +70,7 @@ static void InvalidateSuperViews(NSView *view);
   }
 
 
+int g_swell_osx_readonlytext_wndbg = 0;
 int g_swell_want_nice_style = 1;
 static void *SWELL_CStringToCFString_FilterPrefix(const char *str)
 {
@@ -3161,6 +3162,11 @@ STANDARD_CONTROL_NEEDSDISPLAY_IMPL([self isSelectable] ? "Edit" : "static")
       else
         [self setBackgroundColor:[NSColor textBackgroundColor]];
     }
+    else
+    {
+      if (g_swell_osx_readonlytext_wndbg)
+        [self setBackgroundColor:[NSColor textBackgroundColor]];
+    }
   }
   else if (![self isBordered] && ![self drawsBackground]) // looks like a static text control
   {
@@ -3172,6 +3178,12 @@ STANDARD_CONTROL_NEEDSDISPLAY_IMPL([self isSelectable] ? "Edit" : "static")
 
     float alpha = ([self isEnabled] ? 1.0f : 0.5f);
     [self setTextColor:[col colorWithAlphaComponent:alpha]];
+  }
+  else
+  {
+    // not editable
+    if (g_swell_osx_readonlytext_wndbg)
+      [self setBackgroundColor:[NSColor windowBackgroundColor]];
   }
 }
 
@@ -4283,20 +4295,67 @@ int ListView_GetItemState(HWND h, int ipos, UINT mask)
   return flag;  
 }
 
+int swell_ignore_listview_changes;
+
 bool ListView_SetItemState(HWND h, int ipos, UINT state, UINT statemask)
 {
   int doref=0;
   if (!h || ![(id)h isKindOfClass:[SWELL_ListView class]]) return false;
   SWELL_ListView *tv=(SWELL_ListView*)h;
   static int _is_doing_all;
+  const bool isSingle = tv->m_lbMode ? !(tv->style & LBS_EXTENDEDSEL) : !!(tv->style&LVS_SINGLESEL);
   
   if (ipos == -1)
   {
     int x;
     int n=ListView_GetItemCount(h);
+    NSIndexSet *oldSelection = NULL;
+    if (statemask & LVIS_SELECTED)
+    {
+      oldSelection = [tv selectedRowIndexes];
+      [oldSelection retain];
+      if (state & LVIS_SELECTED)
+      {
+        if (isSingle)
+        {
+          statemask &= ~LVIS_SELECTED; // no-op and don't send LVN_ITEMCHANGED
+        }
+        else
+        {
+          swell_ignore_listview_changes++;
+          [tv selectAll:nil];
+          swell_ignore_listview_changes--;
+        }
+      }
+      else
+      {
+        swell_ignore_listview_changes++;
+        [tv deselectAll:nil];
+        swell_ignore_listview_changes--;
+      }
+    }
     _is_doing_all++;
     for (x = 0; x < n; x ++)
-      ListView_SetItemState(h,x,state,statemask);
+    {
+      if (statemask & ~LVIS_SELECTED)
+        ListView_SetItemState(h,x,state,statemask & ~LVIS_SELECTED);
+
+      if (statemask & LVIS_SELECTED)
+      {
+        if ([oldSelection containsIndex:x] == !(state & LVIS_SELECTED))
+        {
+          static int __rent;
+          if (!__rent)
+          {
+            __rent=1;
+            NMLISTVIEW nm={{(HWND)h,(UINT_PTR)[tv tag],LVN_ITEMCHANGED},x,0,state,};
+            SendMessage(GetParent(h),WM_NOTIFY,nm.hdr.idFrom,(LPARAM)&nm);
+            __rent=0;
+          }
+        }
+      }
+    }
+    [oldSelection release];
     _is_doing_all--;
     ListView_RedrawItems(h,0,n-1);
     return true;
@@ -4324,13 +4383,24 @@ bool ListView_SetItemState(HWND h, int ipos, UINT state, UINT statemask)
   if (statemask & LVIS_SELECTED)
   {
     if (state & LVIS_SELECTED)
-    {      
-      bool isSingle = tv->m_lbMode ? !(tv->style & LBS_EXTENDEDSEL) : !!(tv->style&LVS_SINGLESEL);
-      if (![tv isRowSelected:ipos]) { didsel=true;  [tv selectRowIndexes:[NSIndexSet indexSetWithIndex:ipos] byExtendingSelection:isSingle?NO:YES]; }
+    {
+      if (![tv isRowSelected:ipos])
+      {
+        didsel = true;
+        swell_ignore_listview_changes++;
+        [tv selectRowIndexes:[NSIndexSet indexSetWithIndex:ipos] byExtendingSelection:isSingle?NO:YES];
+        swell_ignore_listview_changes--;
+      }
     }
     else
     {
-      if ([tv isRowSelected:ipos]) { didsel=true; [tv deselectRow:ipos];  }
+      if ([tv isRowSelected:ipos])
+      {
+        didsel = true;
+        swell_ignore_listview_changes++;
+        [tv deselectRow:ipos];
+        swell_ignore_listview_changes--;
+      }
     }
   }
   if (statemask & LVIS_FOCUSED)

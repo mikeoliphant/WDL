@@ -6066,6 +6066,8 @@ bool ListView_SetItemState(HWND h, int ipos, UINT state, UINT statemask)
     int x;
     int n=ListView_GetItemCount(h);
     _is_doing_all++;
+    if ((statemask & LVIS_SELECTED) && (state & LVIS_SELECTED) && !lvs->m_is_multisel)
+      statemask &= ~LVIS_SELECTED;
     for (x = 0; x < n; x ++)
       ListView_SetItemState(h,x,state,statemask);
     _is_doing_all--;
@@ -6097,7 +6099,7 @@ bool ListView_SetItemState(HWND h, int ipos, UINT state, UINT statemask)
     }
   }
 
-  if (!_is_doing_all && changed)
+  if (changed)
   {
     static int __rent;
     if (!__rent)
@@ -6107,7 +6109,7 @@ bool ListView_SetItemState(HWND h, int ipos, UINT state, UINT statemask)
       SendMessage(GetParent(h),WM_NOTIFY,h->m_id,(LPARAM)&nm);      
       __rent--;
     }
-    if (changed) ListView_RedrawItems(h,ipos,ipos);
+    if (!_is_doing_all) ListView_RedrawItems(h,ipos,ipos);
   }
   return true;
 }
@@ -7758,14 +7760,15 @@ BOOL ShellExecute(HWND hwndDlg, const char *action,  const char *content1, const
     }
   }
 
-  if (fork() == 0) 
+  const pid_t pid = fork();
+  if (pid == 0) 
   {
     for (int x=0;argv[x];x++) argv[x] = strdup(argv[x]);
     execv(argv[0],(char *const*)argv);
     exit(0); // if execv fails for some reason
   }
   free(tmp);
-  return TRUE;
+  return pid>0;
 }
 
 
