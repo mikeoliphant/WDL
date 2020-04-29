@@ -903,6 +903,11 @@ BOOL SetDlgItemText(HWND hwnd, int idx, const char *text)
   return true;
 }
 
+int GetWindowTextLength(HWND hwnd)
+{
+  return hwnd ? hwnd->m_title.GetLength() : 0;
+}
+
 BOOL GetDlgItemText(HWND hwnd, int idx, char *text, int textlen)
 {
   *text=0;
@@ -1836,6 +1841,10 @@ struct __SWELL_editControlState
 };
 
 
+static int utf8fs_charpos_to_bytepos(const WDL_FastString *fs, int charpos)
+{
+  return charpos < fs->GetLength() ? WDL_utf8_charpos_to_bytepos(fs->Get(),charpos) : fs->GetLength();
+}
 
 
 
@@ -1964,11 +1973,11 @@ bool __SWELL_editControlState::deleteSelection(WDL_FastString *fs)
 {
     if (sel1>=0 && sel2 > sel1)
     {
-      int pos1 = WDL_utf8_charpos_to_bytepos(fs->Get(),sel1);
-      int pos2 = WDL_utf8_charpos_to_bytepos(fs->Get(),sel2);
+      int pos1 = utf8fs_charpos_to_bytepos(fs,sel1);
+      int pos2 = utf8fs_charpos_to_bytepos(fs,sel2);
       if (pos2 == pos1) return false;
 
-      int cp = WDL_utf8_charpos_to_bytepos(fs->Get(),cursor_pos);
+      int cp = utf8fs_charpos_to_bytepos(fs,cursor_pos);
       fs->DeleteSub(pos1,pos2-pos1);
       if (cp >= pos2) cp -= pos2-pos1;
       else if (cp >= pos1) cp=pos1;
@@ -1984,8 +1993,8 @@ int __SWELL_editControlState::getSelection(WDL_FastString *fs, const char **ptrO
 {
     if (sel1>=0 && sel2>sel1)
     {
-      int pos1 = WDL_utf8_charpos_to_bytepos(fs->Get(),sel1);
-      int pos2 = WDL_utf8_charpos_to_bytepos(fs->Get(),sel2);
+      int pos1 = utf8fs_charpos_to_bytepos(fs,sel1);
+      int pos2 = utf8fs_charpos_to_bytepos(fs,sel2);
       if (ptrOut) *ptrOut = fs->Get()+pos1;
       return pos2-pos1;
     }
@@ -2106,6 +2115,8 @@ void __SWELL_editControlState::autoScrollToOffset(HWND hwnd, int charpos, bool i
       }
       if (is_multiline)
       {
+        if (charpos > hwnd->m_title.GetLength())
+          tmp.bottom -= line_h;
         if (pt.y+line_h > scroll_y+tmp.bottom) scroll_y = pt.y - tmp.bottom + line_h;
         if (pt.y < scroll_y) scroll_y=pt.y;
       }
@@ -2188,7 +2199,7 @@ static LRESULT OnEditKeyDown(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
           if (s)
           {
             es->deleteSelection(&hwnd->m_title);
-            int bytepos = WDL_utf8_charpos_to_bytepos(hwnd->m_title.Get(),es->cursor_pos);
+            int bytepos = utf8fs_charpos_to_bytepos(&hwnd->m_title,es->cursor_pos);
             hwnd->m_title.Insert(s,bytepos);
             if (!(hwnd->m_style&ES_MULTILINE))
             {
@@ -2237,7 +2248,7 @@ static LRESULT OnEditKeyDown(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
       char b[8];
       WDL_MakeUTFChar(b,wParam,sizeof(b));
       es->deleteSelection(&hwnd->m_title);
-      int bytepos = WDL_utf8_charpos_to_bytepos(hwnd->m_title.Get(),es->cursor_pos);
+      int bytepos = utf8fs_charpos_to_bytepos(&hwnd->m_title,es->cursor_pos);
       hwnd->m_title.Insert(b,bytepos);
       es->cursor_pos++;
       return 7;
@@ -2360,7 +2371,7 @@ static LRESULT OnEditKeyDown(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
       {
         if (es->deleteSelection(&hwnd->m_title)) return 7;
 
-        const int bytepos = WDL_utf8_charpos_to_bytepos(hwnd->m_title.Get(),es->cursor_pos);
+        const int bytepos = utf8fs_charpos_to_bytepos(&hwnd->m_title,es->cursor_pos);
         if (bytepos < hwnd->m_title.GetLength())
         {
           const char *rd = hwnd->m_title.Get()+bytepos;
@@ -2395,7 +2406,7 @@ static LRESULT OnEditKeyDown(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
       {
         if (hwnd->m_style & ES_READONLY) return 1;
         if (es->deleteSelection(&hwnd->m_title)) return 7;
-        int bytepos = WDL_utf8_charpos_to_bytepos(hwnd->m_title.Get(),es->cursor_pos);
+        int bytepos = utf8fs_charpos_to_bytepos(&hwnd->m_title,es->cursor_pos);
         hwnd->m_title.Insert("\r\n",bytepos);
         es->cursor_pos+=2; // skip \r and \n
         return 7;
@@ -2803,9 +2814,9 @@ forceMouseMove:
           r.left+=2 - es->scroll_x; r.right-=2;
 
           const bool do_cursor = es->cursor_state!=0;
-          const int cursor_pos = focused ?  WDL_utf8_charpos_to_bytepos(title->Get(),es->cursor_pos) : -1;
-          const int sel1 = es->sel1>=0 && focused ? WDL_utf8_charpos_to_bytepos(title->Get(),es->sel1) : -1;
-          const int sel2 = es->sel2>=0 && focused ? WDL_utf8_charpos_to_bytepos(title->Get(),es->sel2) : -1;
+          const int cursor_pos = focused ?  utf8fs_charpos_to_bytepos(title,es->cursor_pos) : -1;
+          const int sel1 = es->sel1>=0 && focused ? utf8fs_charpos_to_bytepos(title,es->sel1) : -1;
+          const int sel2 = es->sel2>=0 && focused ? utf8fs_charpos_to_bytepos(title,es->sel2) : -1;
 
           const bool multiline = (hwnd->m_style & ES_MULTILINE) != 0;
 
@@ -2920,6 +2931,31 @@ forceMouseMove:
       if (hwnd->m_id && hwnd->m_parent)
         SendMessage(hwnd->m_parent,WM_COMMAND,(EN_CHANGE<<16)|hwnd->m_id,(LPARAM)hwnd);
     break;
+    case EM_REPLACESEL:
+      if (lParam && es)
+      {
+        const char *p = (const char *)lParam;
+        int pos = wdl_min(es->sel1,es->sel2);
+        es->deleteSelection(&hwnd->m_title);
+        if (*p)
+        {
+          if (pos < 0) pos = es->cursor_pos;
+          int bytepos = utf8fs_charpos_to_bytepos(&hwnd->m_title,pos);
+          hwnd->m_title.Insert(p,bytepos);
+        }
+        InvalidateRect(hwnd,NULL,FALSE);
+      }
+    return 0;
+    case EM_GETSEL:
+      if (es)
+      {
+        if (wParam) * (int *)wParam = es->sel1;
+        if (lParam) * (int *)lParam = es->sel2;
+        if (es->sel1 < 0 || es->sel1 > 65535 ||
+            es->sel2 < 0 || es->sel2 > 65535) return -1;
+        return MAKELPARAM(es->sel1,es->sel2);
+      }
+    return 0;
     case EM_SETSEL:
       if (es) 
       {
@@ -2944,7 +2980,8 @@ forceMouseMove:
         } 
         else if (wParam == SB_BOTTOM)
         {
-          es->autoScrollToOffset(hwnd,hwnd->m_title.GetLength(),
+          es->autoScrollToOffset(hwnd,
+               hwnd->m_title.GetLength() + 1, // this should be charpos rather than bytepos, but anything longer than m_title.GetLength() ensures we go to the absolute bottom
                (hwnd->m_style & ES_MULTILINE) != 0,
                (hwnd->m_style & (ES_MULTILINE|ES_AUTOHSCROLL)) == ES_MULTILINE);
           InvalidateRect(hwnd,NULL,FALSE);
@@ -3623,7 +3660,7 @@ popupMenu:
 
             if (focused && s->editstate.cursor_state)
             {
-              cursor_pos = WDL_utf8_charpos_to_bytepos(hwnd->m_title.Get(),s->editstate.cursor_pos);
+              cursor_pos = utf8fs_charpos_to_bytepos(&hwnd->m_title,s->editstate.cursor_pos);
             }
           }
 
@@ -3685,6 +3722,16 @@ popupMenu:
     case WM_CAPTURECHANGED:
       InvalidateRect(hwnd,NULL,FALSE);
     break;
+    case EM_GETSEL:
+      if (s && (hwnd->m_style & CBS_DROPDOWNLIST) != CBS_DROPDOWNLIST)
+      {
+        if (wParam) * (int *)wParam = s->editstate.sel1;
+        if (lParam) * (int *)lParam = s->editstate.sel2;
+        if (s->editstate.sel1 < 0 || s->editstate.sel1 > 65535 ||
+            s->editstate.sel2 < 0 || s->editstate.sel2 > 65535) return -1;
+        return MAKELPARAM(s->editstate.sel1,s->editstate.sel2);
+      }
+    return 0;
     case EM_SETSEL:
       if (s && (hwnd->m_style & CBS_DROPDOWNLIST) != CBS_DROPDOWNLIST)
       {
@@ -3957,7 +4004,7 @@ static const char *stateStringOnKey(UINT uMsg, WPARAM wParam, LPARAM lParam)
   const bool is_numpad = wParam >= VK_NUMPAD0 && wParam <= VK_DIVIDE;
   if ((lParam & FVIRTKEY) && wParam == VK_BACK)
   {
-    str.SetLen(WDL_utf8_charpos_to_bytepos(str.Get(),WDL_utf8_get_charlen(str.Get())-1));
+    str.SetLen(utf8fs_charpos_to_bytepos(&str,WDL_utf8_get_charlen(str.Get())-1));
   }
   else if (wParam >= 32 && (!(lParam & FVIRTKEY) || swell_is_virtkey_char((int)wParam) || is_numpad))
   {

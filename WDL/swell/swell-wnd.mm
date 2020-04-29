@@ -2370,6 +2370,39 @@ BOOL SetDlgItemText(HWND hwnd, int idx, const char *text)
   return FALSE;
 }
 
+int GetWindowTextLength(HWND hwnd)
+{
+  if (!hwnd) return 0;
+
+  SWELL_BEGIN_TRY
+
+  NSView *pvw = (NSView *)hwnd;
+  if ([(id)pvw isKindOfClass:[NSView class]] && [[(id)pvw window] contentView] == pvw)
+  {
+    pvw=(NSView *)[(id)pvw window];
+  }
+
+  if ([(id)pvw respondsToSelector:@selector(onSwellGetText)])
+  {
+    const char *p=(const char *)[(SWELL_hwndChild*)pvw onSwellGetText];
+    return p ? strlen(p) : 0;
+  }
+
+  NSString *s;
+
+  if ([pvw isKindOfClass:[NSButton class]]||[pvw isKindOfClass:[NSWindow class]]) s=[((NSButton *)pvw) title];
+  else if ([pvw isKindOfClass:[NSControl class]]) s=[((NSControl *)pvw) stringValue];
+  else if ([pvw isKindOfClass:[NSText class]])  s=[(NSText*)pvw string];
+  else if ([pvw isKindOfClass:[NSBox class]]) s=[(NSBox *)pvw title];
+  else return 0;
+
+  const char *p = s ? [s UTF8String] : NULL;
+  return p ? strlen(p) : 0;
+
+  SWELL_END_TRY(;)
+  return 0;
+}
+
 BOOL GetDlgItemText(HWND hwnd, int idx, char *text, int textlen)
 {
   *text=0;
@@ -3073,6 +3106,25 @@ STANDARD_CONTROL_NEEDSDISPLAY_IMPL("Edit")
       if (wParam) *(int*)wParam = (int)r.location;
       if (lParam) *(int*)lParam = (int)(r.location+r.length);
     }
+    return 0;
+    case EM_REPLACESEL:
+      if (lParam)
+      {
+        NSTextStorage *ts = [self textStorage];
+        if (ts)
+        {
+          NSRange r = [self selectedRange];
+          const char *s = (const char *)lParam;
+          NSString *str = *s ? (NSString*)SWELL_CStringToCFString(s) : NULL;
+
+          if (r.length > 0 && !str)
+            [ts deleteCharactersInRange:r];
+          else if (str)
+            [ts replaceCharactersInRange:r withString:str];
+
+          if (str) [str release];
+        }
+      }
     return 0;
       
     case WM_SETFONT:
