@@ -38,6 +38,7 @@
 #include <stdio.h>
 #include "pcmfmtcvt.h"
 #include "wdlstring.h"
+#include "win32_utf8.h"
 #include "wdltypes.h"
 
 #if defined(WAVEWRITER_MAX_NCH) && WAVEWRITER_MAX_NCH > 64
