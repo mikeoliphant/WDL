@@ -1,6 +1,6 @@
 /*
   WDL - wavread.h
-  Copyright (C) 2012-2016 Theo Niessink
+  Copyright (C) 2012-2020 Theo Niessink
   <http://www.taletn.com/>
 
   This software is provided 'as-is', without any express or implied
@@ -36,6 +36,7 @@
 #include "pcmfmtcvt.h"
 #include "wdlendian.h"
 #include "wdlstring.h"
+#include "win32_utf8.h"
 #include "wdltypes.h"
 
 #if defined(WAVEREADER_MAX_NCH) && WAVEREADER_MAX_NCH > 64
