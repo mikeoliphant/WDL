@@ -436,7 +436,7 @@ static void *NSEEL_PProc_Stack(void *data, int data_size, compileContext *ctx)
     UINT_PTR stackptr = ((UINT_PTR) (&ch->stack));
 
     ch->want_stack=1;
-    if (!ch->stack) ch->stack = newDataBlock(NSEEL_STACK_SIZE*sizeof(EEL_F),sizeof(EEL_F));
+    if (!ch->stack) ch->stack = newDataBlock(NSEEL_STACK_SIZE*sizeof(EEL_F),NSEEL_STACK_SIZE*sizeof(EEL_F)); // stack functions need this alignment
 
     data=EEL_GLUE_set_immediate(data, stackptr);
     data=EEL_GLUE_set_immediate(data, m1); // and
@@ -455,7 +455,7 @@ static void *NSEEL_PProc_Stack_PeekInt(void *data, int data_size, compileContext
     UINT_PTR stackptr = ((UINT_PTR) (&ch->stack));
 
     ch->want_stack=1;
-    if (!ch->stack) ch->stack = newDataBlock(NSEEL_STACK_SIZE*sizeof(EEL_F),sizeof(EEL_F));
+    if (!ch->stack) ch->stack = newDataBlock(NSEEL_STACK_SIZE*sizeof(EEL_F),NSEEL_STACK_SIZE*sizeof(EEL_F)); // stack functions need this alignment
 
     data=EEL_GLUE_set_immediate(data, stackptr);
     data=EEL_GLUE_set_immediate(data, offs);
@@ -473,7 +473,7 @@ static void *NSEEL_PProc_Stack_PeekTop(void *data, int data_size, compileContext
     UINT_PTR stackptr = ((UINT_PTR) (&ch->stack));
 
     ch->want_stack=1;
-    if (!ch->stack) ch->stack = newDataBlock(NSEEL_STACK_SIZE*sizeof(EEL_F),sizeof(EEL_F));
+    if (!ch->stack) ch->stack = newDataBlock(NSEEL_STACK_SIZE*sizeof(EEL_F),NSEEL_STACK_SIZE*sizeof(EEL_F)); // stack functions need this alignment
 
     data=EEL_GLUE_set_immediate(data, stackptr);
   }
@@ -4953,7 +4953,7 @@ had_error:
 
         if (ctx->gotEndOfInput&4)
         {
-          snprintf(ctx->last_error_string,sizeof(ctx->last_error_string),"%d: %smissing ) or ]",linenumber+lineoffs,cur_err);
+          snprintf(ctx->last_error_string,sizeof(ctx->last_error_string),"%d: %.200smissing ) or ]",linenumber+lineoffs,cur_err);
         }
         else
         {
@@ -4975,11 +4975,11 @@ had_error:
 
           // display left_amt >>>> right_amt_nospace
           if (left_amt_nospace > 0)
-            snprintf(ctx->last_error_string,sizeof(ctx->last_error_string),"%d: %s'%.*s <!> %.*s'",linenumber+lineoffs,cur_err,
+            snprintf(ctx->last_error_string,sizeof(ctx->last_error_string),"%d: %.200s'%.*s <!> %.*s'",linenumber+lineoffs,cur_err,
               left_amt_nospace,p-left_amt_nospace,
               right_amt_nospace,p);
           else
-            snprintf(ctx->last_error_string,sizeof(ctx->last_error_string),"%d: %s'%.*s'",linenumber+lineoffs,cur_err,right_amt_nospace,p);
+            snprintf(ctx->last_error_string,sizeof(ctx->last_error_string),"%d: %.200s'%.*s'",linenumber+lineoffs,cur_err,right_amt_nospace,p);
         }
       }
 
