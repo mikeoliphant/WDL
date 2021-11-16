@@ -59,17 +59,16 @@
 #endif
 
 #if defined(WDL_CONVO_SSE) || defined(WDL_CONVO_SSE3)
-#define WDL_CONVO_ALIGN 16
-#endif
-
-#ifdef WDL_CONVO_ALIGN
-#define WDL_CONVO_GETALIGNED() GetAligned(WDL_CONVO_ALIGN)
+  #define WDL_CONVO_ALIGN 16
+  #define WDL_CONVO_ALIGN_IMPULSEBUFf (WDL_CONVO_ALIGN / sizeof(WDL_CONVO_IMPULSEBUFf))
+  #define WDL_CONVO_ALIGN_FFT_REAL (WDL_CONVO_ALIGN / sizeof(WDL_FFT_REAL))
+  #define WDL_CONVO_GETALIGNED() GetAligned(WDL_CONVO_ALIGN)
 #else
-
-#define WDL_CONVO_ALIGN 1
-#define WDL_CONVO_GETALIGNED() Get()
-
-#endif // WDL_CONVO_ALIGN
+  #define WDL_CONVO_ALIGN 1
+  #define WDL_CONVO_ALIGN_IMPULSEBUFf 0
+  #define WDL_CONVO_ALIGN_FFT_REAL 0
+  #define WDL_CONVO_GETALIGNED() Get()
+#endif
 
 #if !defined(WDL_CONVO_SSE) && !defined(WDL_CONVO_SSE3)
 static void WDL_CONVO_CplxMul2(WDL_FFT_COMPLEX *c, const WDL_FFT_COMPLEX *a, const WDL_CONVO_IMPULSEBUFCPLXf *b, int n)
@@ -307,7 +306,7 @@ int WDL_ConvolutionEngine::SetImpulse(WDL_ImpulseBuffer *impulse, int fft_size, 
       if (max_imp_size && lenout>max_imp_size) lenout=max_imp_size;
 
       ImpChannelInfo *impdata = m_impdata.Get(x);
-      impdata->imp.Resize(lenout>0 ? lenout+WDL_CONVO_ALIGN-1 : 0);
+      impdata->imp.Resize(lenout>0 ? lenout+WDL_CONVO_ALIGN_IMPULSEBUFf : 0);
       WDL_CONVO_IMPULSEBUFf *impout=impdata->imp.WDL_CONVO_GETALIGNED()+lenout;
       while (lenout-->0) *--impout = (WDL_CONVO_IMPULSEBUFf) *imp++;
     }
@@ -351,7 +350,7 @@ int WDL_ConvolutionEngine::SetImpulse(WDL_ImpulseBuffer *impulse, int fft_size, 
 
     int nb=nblocks+!!smallerSizeMode;
     ImpChannelInfo *impdata = m_impdata.Get(x);
-    impdata->imp.Resize(nb>0 ? nb*fft_size*2+WDL_CONVO_ALIGN-1 : 0);
+    impdata->imp.Resize(nb>0 ? nb*fft_size*2+WDL_CONVO_ALIGN_IMPULSEBUFf : 0);
     WDL_CONVO_IMPULSEBUFf *impout=impdata->imp.WDL_CONVO_GETALIGNED();
     char *zbuf=m_impdata.Get(x)->zflag.Resize(nblocks);
     int lenout=impulse->impulses[x].GetSize()-impulse_sample_offset;  
@@ -441,7 +440,7 @@ void WDL_ConvolutionEngine::Add(WDL_FFT_REAL **bufs, int len, int nch)
       int wch = ch % m_impdata.GetSize();
       ImpChannelInfo *impdata = m_impdata.Get(wch);
       WDL_CONVO_IMPULSEBUFf *imp=impdata->imp.WDL_CONVO_GETALIGNED();
-      int imp_len = impdata->imp.GetSize()-(WDL_CONVO_ALIGN-1);
+      int imp_len = impdata->imp.GetSize()-WDL_CONVO_ALIGN_IMPULSEBUFf;
       ProcChannelInfo *pinf = m_proc.Get(ch);
 
       if (imp_len>0) 
@@ -559,7 +558,7 @@ void WDL_ConvolutionEngine::Add(WDL_FFT_REAL **bufs, int len, int nch)
       const int sz=nblocks*m_fft_size;
 
       memset(pinf->samplehist_zflag.Resize(nblocks),0,nblocks);
-      pinf->samplehist.Resize(sz>0 ? sz*2+WDL_CONVO_ALIGN-1 : 0);
+      pinf->samplehist.Resize(sz>0 ? sz*2+WDL_CONVO_ALIGN_FFT_REAL : 0);
       pinf->overlaphist.Resize(m_fft_size/2);
       memset(pinf->samplehist.Get(),0,pinf->samplehist.GetSize()*sizeof(WDL_FFT_REAL));
       memset(pinf->overlaphist.Get(),0,pinf->overlaphist.GetSize()*sizeof(WDL_FFT_REAL));
@@ -583,7 +582,7 @@ void WDL_ConvolutionEngine::Add(WDL_FFT_REAL **bufs, int len, int nch)
   for (int ch = 0; ch < nch; ch ++)
   {
     ProcChannelInfo *pinf = m_proc.Get(ch);
-    if (pinf->samplehist.GetSize()<WDL_CONVO_ALIGN || !pinf->overlaphist.GetSize()) continue;
+    if (pinf->samplehist.GetSize()<WDL_CONVO_ALIGN_FFT_REAL || !pinf->overlaphist.GetSize()) continue;
     pinf->samplesin.Add(bufs ? bufs[ch] : NULL,len*sizeof(WDL_FFT_REAL));
   }
 }
@@ -609,7 +608,7 @@ int WDL_ConvolutionEngine::Avail(int want)
   const int chunksize=m_fft_size/2;
   const int nblocks=(m_impulse_len+chunksize-1)/chunksize;
   // clear combining buffer
-  m_combinebuf.Resize(m_fft_size*4+WDL_CONVO_ALIGN-1); // temp space
+  m_combinebuf.Resize(m_fft_size*4+WDL_CONVO_ALIGN_FFT_REAL); // temp space
   WDL_FFT_REAL *workbuf2 = m_combinebuf.WDL_CONVO_GETALIGNED();
 
   int ch;
@@ -619,14 +618,15 @@ int WDL_ConvolutionEngine::Avail(int want)
     ProcChannelInfo *pinf = m_proc.Get(ch);
     ProcChannelInfo *pinf2 = ch+1 < m_proc_nch ? m_proc.Get(ch+1) : NULL;
 
-    if (pinf->samplehist.GetSize()<WDL_CONVO_ALIGN || !pinf->overlaphist.GetSize()) continue;
+    if (pinf->samplehist.GetSize()<WDL_CONVO_ALIGN_FFT_REAL || !pinf->overlaphist.GetSize()) continue;
     int srcc=ch % m_impdata.GetSize();
 
     bool allow_mono_input_mode=true;
     bool mono_impulse_mode=false;
 
     if (m_impdata.GetSize()==1 && pinf2 &&
-        pinf2->samplehist.GetSize()>=WDL_CONVO_ALIGN && pinf2->overlaphist.GetSize() &&
+        pinf2->samplehist.GetSize()>=WDL_CONVO_ALIGN_FFT_REAL &&
+        pinf2->overlaphist.GetSize() &&
         pinf->samplesin.Available()==pinf2->samplesin.Available() &&
         pinf->samplesout.Available()==pinf2->samplesout.Available()
         )
