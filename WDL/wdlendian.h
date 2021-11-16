@@ -1,7 +1,6 @@
 /*
   WDL - wdlendian.h
-  (c) Theo Niessink 2011
-  <http://www.taletn.com/>
+  Copyright (C) 2011 and later, Theo Niessink
 
   This software is provided 'as-is', without any express or implied
   warranty. In no event will the authors be held liable for any damages
@@ -31,10 +30,8 @@
 #define _WDL_ENDIAN_H_
 
 
+#include <string.h>
 #include "wdltypes.h"
-
-typedef union { float  f; unsigned int int32; } WDL_EndianFloat;
-typedef union { double f; WDL_UINT64   int64; } WDL_EndianDouble;
 
 #ifdef __cplusplus
 	#define WDL_ENDIAN_INLINE inline
@@ -87,7 +84,7 @@ typedef union { double f; WDL_UINT64   int64; } WDL_EndianDouble;
 
 // Microsoft C
 #ifdef _MSC_VER
-#include <intrin.h>
+#include <stdlib.h>
 #define WDL_bswap16(x) _byteswap_ushort(x)
 #define WDL_bswap32(x) _byteswap_ulong(x)
 #define WDL_bswap64(x) _byteswap_uint64(x)
@@ -137,12 +134,12 @@ static WDL_ENDIAN_INLINE unsigned int WDL_bswap32(const unsigned int int32)
 static WDL_ENDIAN_INLINE WDL_UINT64 WDL_bswap64(const WDL_UINT64 int64)
 {
 	return int64 >> 56 |
-	       int64 >> 40 & 0x000000000000FF00ULL |
-	       int64 >> 24 & 0x0000000000FF0000ULL |
-	       int64 >> 8  & 0x00000000FF000000ULL |
-	       int64 << 8  & 0x000000FF00000000ULL |
-	       int64 << 24 & 0x0000FF0000000000ULL |
-	       int64 << 40 & 0x00FF000000000000ULL |
+	       int64 >> 40 & WDL_UINT64_CONST(0x000000000000FF00) |
+	       int64 >> 24 & WDL_UINT64_CONST(0x0000000000FF0000) |
+	       int64 >> 8  & WDL_UINT64_CONST(0x00000000FF000000) |
+	       int64 << 8  & WDL_UINT64_CONST(0x000000FF00000000) |
+	       int64 << 24 & WDL_UINT64_CONST(0x0000FF0000000000) |
+	       int64 << 40 & WDL_UINT64_CONST(0x00FF000000000000) |
 	       int64 << 56;
 }
 #endif
@@ -229,25 +226,17 @@ static WDL_ENDIAN_INLINE WDL_INT64      WDL_bswap_if_be(WDL_INT64      int64) { 
 	#define __WDL_bswapf_if_b WDL_bswapf_if_le
 #endif
 
-static WDL_ENDIAN_INLINE unsigned int __WDL_bswapf_if_a(const float        f)     { return WDL_bswap32(*(const unsigned int*)&f); }
-static WDL_ENDIAN_INLINE WDL_UINT64   __WDL_bswapf_if_a(const double       f)     { return WDL_bswap64(*(const WDL_UINT64  *)&f); }
+static WDL_ENDIAN_INLINE unsigned int __WDL_bswapf_if_b(const float  flt) { unsigned int int32; memcpy(&int32, &flt, sizeof(int32)); return int32; }
+static WDL_ENDIAN_INLINE WDL_UINT64   __WDL_bswapf_if_b(const double dbl) { WDL_UINT64   int64; memcpy(&int64, &dbl, sizeof(int64)); return int64; }
 
-static WDL_ENDIAN_INLINE float        __WDL_bswapf_if_a(const unsigned int int32)
-{
-	const unsigned int i = WDL_bswap32(int32);
-	return *(const float*)&i;
-}
+static WDL_ENDIAN_INLINE float  __WDL_bswapf_if_b(const unsigned int int32) { float  flt; memcpy(&flt, &int32, sizeof(int32)); return flt; }
+static WDL_ENDIAN_INLINE double __WDL_bswapf_if_b(const WDL_UINT64   int64) { double dbl; memcpy(&dbl, &int64, sizeof(int64)); return dbl; }
 
-static WDL_ENDIAN_INLINE double       __WDL_bswapf_if_a(const WDL_UINT64   int64)
-{
-	const WDL_UINT64 i = WDL_bswap64(int64);
-	return *(const double*)&i;
-}
+static WDL_ENDIAN_INLINE unsigned int __WDL_bswapf_if_a(const float  flt) { return WDL_bswap32(__WDL_bswapf_if_b(flt)); }
+static WDL_ENDIAN_INLINE WDL_UINT64   __WDL_bswapf_if_a(const double dbl) { return WDL_bswap64(__WDL_bswapf_if_b(dbl)); }
 
-static WDL_ENDIAN_INLINE unsigned int __WDL_bswapf_if_b(const float        f)     { return *(const unsigned int*)&f; }
-static WDL_ENDIAN_INLINE WDL_UINT64   __WDL_bswapf_if_b(const double       f)     { return *(const WDL_UINT64  *)&f; }
-static WDL_ENDIAN_INLINE float        __WDL_bswapf_if_b(const unsigned int int32) { return *(const float       *)&int32; }
-static WDL_ENDIAN_INLINE double       __WDL_bswapf_if_b(const WDL_UINT64   int64) { return *(const double      *)&int64; }
+static WDL_ENDIAN_INLINE float  __WDL_bswapf_if_a(unsigned int int32) { int32 = WDL_bswap32(int32); return __WDL_bswapf_if_b(int32); }
+static WDL_ENDIAN_INLINE double __WDL_bswapf_if_a(WDL_UINT64   int64) { int64 = WDL_bswap64(int64); return __WDL_bswapf_if_b(int64); }
 
 #undef __WDL_bswapf_if_a
 #undef __WDL_bswapf_if_b
