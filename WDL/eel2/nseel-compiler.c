@@ -2338,12 +2338,12 @@ start_over: // when an opcode changed substantially in optimization, goto here t
                   else
                   {
                     double d = 1.0/dvalue;
-
-                    WDL_DenormalDoubleAccess *p = (WDL_DenormalDoubleAccess*)&d;
+                    WDL_UINT64 w;
+                    memcpy(&w,&d,sizeof(d));
                     // allow conversion to multiply if reciprocal is exact
                     // we could also just look to see if the last few digits of the mantissa were 0, which would probably be good
                     // enough, but if the user really wants it they should do * (1/x) instead to force precalculation of reciprocal.
-                    if (!p->w.lw && !(p->w.hw & 0xfffff)) 
+                    if (!(w & WDL_UINT64_CONST(0xfffffffffffff)))
                     {
                       op->fntype = FN_MULTIPLY;
                       op->parms.parms[1]->parms.dv.directValue = d;
@@ -4751,7 +4751,7 @@ NSEEL_CODEHANDLE NSEEL_code_compile_ex(NSEEL_VMCTX _ctx, const char *_expression
       const char *p = expr;
       const char *tok1 = nseel_simple_tokenizer(&p,endptr,&tmplen,NULL);
       const char *funcname = nseel_simple_tokenizer(&p,endptr,&funcname_len,NULL);
-      if (tok1 && funcname && tmplen == 8 && !strnicmp(tok1,"function",8) && (isalpha(funcname[0]) || funcname[0] == '_'))
+      if (tok1 && funcname && tmplen == 8 && !strnicmp(tok1,"function",8) && (isalpha((unsigned char)funcname[0]) || funcname[0] == '_'))
       {
         int had_parms_locals=0;
         if (funcname_len > sizeof(is_fname)-1) funcname_len=sizeof(is_fname)-1;
@@ -4805,7 +4805,7 @@ NSEEL_CODEHANDLE NSEEL_code_compile_ex(NSEEL_VMCTX _ctx, const char *_expression
               goto had_error;
             }
 
-            if (isalpha(*tok1) || *tok1 == '_' || *tok1 == '#') 
+            if (isalpha((unsigned char)*tok1) || *tok1 == '_' || *tok1 == '#')
             {
               maxcnt++;
               if (p < endptr && *p == '*')
@@ -4845,7 +4845,7 @@ NSEEL_CODEHANDLE NSEEL_code_compile_ex(NSEEL_VMCTX _ctx, const char *_expression
               while (NULL != (tok1 = nseel_simple_tokenizer(&p,endptr,&tmplen,NULL)))
               {
                 if (tok1[0] == ')') break;
-                if (isalpha(*tok1) || *tok1 == '_' || *tok1 == '#') 
+                if (isalpha((unsigned char)*tok1) || *tok1 == '_' || *tok1 == '#')
                 {
                   char *newstr;
                   int l = tmplen;
@@ -5076,13 +5076,13 @@ had_error:
           int x=0, right_amt_nospace=0, left_amt_nospace=0;
           while (x < 32 && p-x > _expression && p[-x] != '\r' && p[-x] != '\n') 
           {
-            if (!isspace(p[-x])) left_amt_nospace=x;
+            if (!isspace((unsigned char)p[-x])) left_amt_nospace=x;
             x++;
           }
           x=0;
           while (x < 60 && p[x] && p[x] != '\r' && p[x] != '\n') 
           {
-            if (!isspace(p[x])) right_amt_nospace=x;
+            if (!isspace((unsigned char)p[x])) right_amt_nospace=x;
             x++;
           }
 
@@ -5797,11 +5797,11 @@ opcodeRec *nseel_translate(compileContext *ctx, const char *tmp, size_t tmplen) 
       return nseel_createCompiledValue(ctx,(EEL_F)((((WDL_INT64)1) << v) - 1));
     }
     else if (!tmplen ? !stricmp(tmp,"$E") : (tmplen == 2 && !strnicmp(tmp,"$E",2)))
-      return nseel_createCompiledValue(ctx,(EEL_F)2.71828183);
+      return nseel_createCompiledValue(ctx,(EEL_F)2.718281828459045);
     else if (!tmplen ? !stricmp(tmp, "$PI") : (tmplen == 3 && !strnicmp(tmp, "$PI", 3)))
       return nseel_createCompiledValue(ctx,(EEL_F)3.141592653589793);
     else if (!tmplen ? !stricmp(tmp, "$PHI") : (tmplen == 4 && !strnicmp(tmp, "$PHI", 4)))
-      return nseel_createCompiledValue(ctx,(EEL_F)1.61803399);      
+      return nseel_createCompiledValue(ctx,(EEL_F)1.6180339887498948);
     else if ((!tmplen || tmplen == 4) && tmp[1] == '\'' && tmp[2] && tmp[3] == '\'')
       return nseel_createCompiledValue(ctx,(EEL_F)tmp[2]);      
     else return NULL;

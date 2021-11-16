@@ -56,11 +56,7 @@ typedef WDL_TypedBuf<WDL_FFT_REAL> WDL_CONVO_IMPULSE_TYPED_BUF;
 
 #endif
 
-#ifndef WDL_CONVO_MAX_IMPULSE_NCH
-#define WDL_CONVO_MAX_IMPULSE_NCH 2
-#endif
-
-#ifndef WDL_CONVO_MAX_PROC_NCH
+#if defined(WDL_CONVO_THREAD) && !defined(WDL_CONVO_MAX_PROC_NCH)
 #define WDL_CONVO_MAX_PROC_NCH 2
 #endif
 
@@ -83,24 +79,34 @@ WDL_CONVO_IMPULSEBUFCPLXf;
 class WDL_ImpulseBuffer
 {
 public:
-  WDL_ImpulseBuffer() { samplerate=44100.0; m_nch=1; }
-  ~WDL_ImpulseBuffer() { }
+  WDL_ImpulseBuffer()
+  {
+    samplerate=44100.0;
+    impulses.list.Add(new WDL_CONVO_IMPULSE_TYPED_BUF);
+  }
+  ~WDL_ImpulseBuffer()
+  {
+    impulses.list.Empty(true);
+  }
 
-  int GetLength() { return impulses[0].GetSize(); }
+  int GetLength() { return impulses.list.GetSize() ? impulses[0].GetSize() : 0; }
   int SetLength(int samples); // resizes/clears all channels accordingly, returns actual size set (can be 0 if error)
-  void SetNumChannels(int usench); // handles allocating/converting/etc
-  int GetNumChannels() { return m_nch; }
+  void SetNumChannels(int usench, bool duplicateExisting=true); // handles allocating/converting/etc
+  int GetNumChannels() { return impulses.list.GetSize(); }
 
   void Set(const WDL_FFT_REAL** bufs, int samples, int usench); // call instead of SetLength() and SetNumChannels() to use const instead of heap buffer
 
   double samplerate; // TN: Not used, remove?
-  WDL_CONVO_IMPULSE_TYPED_BUF impulses[WDL_CONVO_MAX_IMPULSE_NCH];
+  struct  {
+    WDL_PtrList<WDL_CONVO_IMPULSE_TYPED_BUF  > list;
 
-private:
-  int ValidateNumChannels(int usench) const;
-  void ClearUnusedChannels(int usench);
-
-  int m_nch;
+    WDL_CONVO_IMPULSE_TYPED_BUF &operator[](size_t i) const
+    {
+      WDL_CONVO_IMPULSE_TYPED_BUF *p = list.Get(i);
+      if (WDL_NORMALLY(p != NULL)) return *p;
+      return *list.Get(0); // if for some reason an out of range index was passed, return first item rather than crash
+    }
+  } impulses;
 
 };
 
@@ -124,26 +130,36 @@ public:
   void Advance(int len);
 
 private:
-  WDL_TypedBuf<WDL_CONVO_IMPULSEBUFf> m_impulse[WDL_CONVO_MAX_IMPULSE_NCH]; // FFT'd data blocks per channel
-  WDL_TypedBuf<char> m_impulse_zflag[WDL_CONVO_MAX_IMPULSE_NCH]; // FFT'd data blocks per channel
 
-  int m_impulse_nch;
-  int m_fft_size;
+  struct ImpChannelInfo {
+    WDL_TypedBuf<WDL_CONVO_IMPULSEBUFf> imp;
+    WDL_TypedBuf<char> zflag;
+  };
+
+  struct ProcChannelInfo {
+    WDL_Queue samplesout;
+    WDL_Queue samplesin2;
+    WDL_FastQueue samplesin;
+
+    WDL_TypedBuf<WDL_FFT_REAL> samplehist; // FFT'd sample blocks per channel
+    WDL_TypedBuf<char> samplehist_zflag;
+    WDL_TypedBuf<WDL_FFT_REAL> overlaphist;
+
+    int hist_pos;
+  };
+
+
+  WDL_PtrList<ImpChannelInfo> m_impdata;
+
   int m_impulse_len;
+  int m_fft_size;
+
   int m_proc_nch;
+  WDL_PtrList<ProcChannelInfo> m_proc;
 
-  WDL_Queue m_samplesout[WDL_CONVO_MAX_PROC_NCH];
-  WDL_Queue m_samplesin2[WDL_CONVO_MAX_PROC_NCH];
-  WDL_FastQueue m_samplesin[WDL_CONVO_MAX_PROC_NCH];
 
-  int m_hist_pos[WDL_CONVO_MAX_PROC_NCH];
-
-  WDL_TypedBuf<WDL_FFT_REAL> m_samplehist[WDL_CONVO_MAX_PROC_NCH]; // FFT'd sample blocks per channel
-  WDL_TypedBuf<char> m_samplehist_zflag[WDL_CONVO_MAX_IMPULSE_NCH];
-  WDL_TypedBuf<WDL_FFT_REAL> m_overlaphist[WDL_CONVO_MAX_PROC_NCH]; 
   WDL_TypedBuf<WDL_FFT_REAL> m_combinebuf;
-
-  WDL_FFT_REAL *m_get_tmpptrs[WDL_CONVO_MAX_PROC_NCH];
+  WDL_TypedBuf<WDL_FFT_REAL *> m_get_tmpptrs;
 
 public:
 
@@ -155,7 +171,7 @@ public:
 #ifdef WDLCONVO_ZL_ACCOUNTING
   int m_zl_fftcnt;//removeme (testing of benchmarks)
 #endif
-  void AddSilenceToOutput(int len, int nch);
+  void AddSilenceToOutput(int len);
 
 } WDL_FIXALIGN;
 
@@ -180,10 +196,9 @@ public:
 private:
   WDL_PtrList<WDL_ConvolutionEngine> m_engines;
 
-  WDL_Queue m_samplesout[WDL_CONVO_MAX_PROC_NCH];
-  WDL_FFT_REAL *m_get_tmpptrs[WDL_CONVO_MAX_PROC_NCH];
+  WDL_PtrList<WDL_Queue> m_sout;
+  WDL_TypedBuf<WDL_FFT_REAL *> m_get_tmpptrs;
 
-  int m_proc_nch;
   bool m_need_feedsilence;
 
 } WDL_FIXALIGN;

@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-g -DWDL_FFT_REALSIZE=8  -Wall -Wno-unused-function -Wno-multichar -Wno-unused-result -Wshadow
+CFLAGS=-g -DWDL_FFT_REALSIZE=8  -Wall -Wno-unused-function -Wno-multichar -Wno-unused-result -Wshadow -Wtype-limits
 LFLAGS=
 CXX=g++
 
@@ -26,6 +26,8 @@ ifeq ($(ARCH), aarch64)
 endif
 
 ifeq ($(UNAME_S),Darwin)
+  CC=clang
+  CXX=clang++
   CFLAGS += -arch $(ARCH)
 endif
 
@@ -146,6 +148,15 @@ asm-nseel-x64.o: a2x64.php asm-nseel-x86-gcc.c
 
 endif
 CXXFLAGS=$(CFLAGS)
+
+ifeq ($(CXX),g++)
+  GCC_VER := $(shell $(CXX) --version|head -n 1| sed 's/.* \([0-9][0-9]*\)[.][0-9.]*/\1/' )
+  GCC_GT_10 := $(shell [ "$(GCC_VER)" -gt 10 ] && echo true )
+  ifeq ($(GCC_GT_10),true)
+    CXXFLAGS += -std=c++03
+  endif
+endif
+
 
 
 %.o : %.mm

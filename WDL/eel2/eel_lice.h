@@ -2614,6 +2614,14 @@ LRESULT WINAPI eel_lice_wndproc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
 #endif
         const int mask = hadAltAdj ? ~256 : ~0;
 
+#ifdef _WIN32
+        if (!a && (uMsg == WM_KEYUP || uMsg == WM_SYSKEYUP))
+        {
+          // not ideal, doesn't properly support all modifiers but better than nothing
+          a = (int)MapVirtualKey((UINT)wParam,2/*MAPVK_VK_TO_CHAR*/);
+        }
+#endif
+
         if (a & mask)
         {
           int a_no_alt = (a&mask);
@@ -2910,9 +2918,9 @@ static const char *eel_lice_function_reference =
 #ifdef EEL_LICE_WANT_STANDALONE
 #ifndef EEL_LICE_STANDALONE_NOINITQUIT
 #ifdef EEL_LICE_WANTDOCK
-  "gfx_init\t\"name\"[,width,height,dockstate,xpos,ypos]\tInitializes the graphics window with title name. Suggested width and height can be specified.\n\n"
+  "gfx_init\t\"name\"[,width,height,dockstate,xpos,ypos]\tInitializes the graphics window with title name. Suggested width and height can be specified. If window is already open, a non-empty name will re-title window, or an empty title will resize window. \n\n"
 #else
-  "gfx_init\t\"name\"[,width,height,xpos,ypos]\tInitializes the graphics window with title name. Suggested width and height can be specified.\n\n"
+  "gfx_init\t\"name\"[,width,height,xpos,ypos]\tInitializes the graphics window with title name. Suggested width and height can be specified. If window is already open, a non-empty name will re-title window, or an empty title will resize window.\n\n"
 #endif
   "Once the graphics window is open, gfx_update() should be called periodically. \0"
   "gfx_quit\t\tCloses the graphics window.\0"
