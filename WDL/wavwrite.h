@@ -36,6 +36,7 @@
 //#include "wdlendian.h" // include for faster endian conversion
 
 #include <stdio.h>
+#include <string.h>
 #include "pcmfmtcvt.h"
 #include "wdlstring.h"
 #include "win32_utf8.h"
@@ -190,7 +191,9 @@ class WaveWriter
       #else
         while (nsamples-->0)
         {
-          fputi32(*(unsigned int*)samples,m_fp);
+          unsigned int a;
+          memcpy(&a,samples,4);
+          fputi32(a,m_fp);
           samples++;
         }
       #endif
@@ -199,8 +202,10 @@ class WaveWriter
       {
         while (nsamples-->0)
         {
-          const double a=*samples;
-          fputi64(*(WDL_UINT64*)&a,m_fp);
+          const double x=*samples;
+          WDL_UINT64 a;
+          memcpy(&a,&x,8);
+          fputi64(a,m_fp);
           samples++;
         }
       }
@@ -246,8 +251,10 @@ class WaveWriter
       {
         while (nsamples-->0)
         {
-          const float a=(float)*samples;
-          fputi32(*(unsigned int*)&a,m_fp);
+          const float x=(float)*samples;
+          unsigned int a;
+          memcpy(&a,&x,4);
+          fputi32(a,m_fp);
           samples++;
         }
       }
@@ -258,7 +265,9 @@ class WaveWriter
       #else
         while (nsamples-->0)
         {
-          fputi64(*(WDL_UINT64*)samples,m_fp);
+          WDL_UINT64 a;
+          memcpy(&a,samples,8);
+          fputi64(a,m_fp);
           samples++;
         }
       #endif
@@ -321,7 +330,9 @@ class WaveWriter
         {
           for (int ch = 0; ch < m_nch; ++ch)
           {
-            fputi32(*(unsigned int*)tmpptrs[ch],m_fp);
+            unsigned int a;
+            memcpy(&a,tmpptrs[ch],4);
+            fputi32(a,m_fp);
             tmpptrs[ch]++;
           }
         }
@@ -332,8 +343,10 @@ class WaveWriter
         {
           for (int ch = 0; ch < m_nch; ++ch)
           {
-            const double a=tmpptrs[ch][0];
-            fputi64(*(WDL_UINT64*)&a,m_fp);
+            const double x=tmpptrs[ch][0];
+            WDL_UINT64 a;
+            memcpy(&a,&x,8);
+            fputi64(a,m_fp);
             tmpptrs[ch]++;
           }
         }
@@ -396,8 +409,10 @@ class WaveWriter
         {
           for (int ch = 0; ch < m_nch; ++ch)
           {
-            const float a=(float)tmpptrs[ch][0];
-            fputi32(*(unsigned int*)&a,m_fp);
+            const float x=(float)tmpptrs[ch][0];
+            unsigned int a;
+            memcpy(&a,&x,4);
+            fputi32(a,m_fp);
             tmpptrs[ch]++;
           }
         }
@@ -408,7 +423,9 @@ class WaveWriter
         {
           for (int ch = 0; ch < m_nch; ++ch)
           {
-            fputi64(*(WDL_UINT64*)tmpptrs[ch],m_fp);
+            WDL_UINT64 a;
+            memcpy(&a,tmpptrs[ch],8);
+            fputi64(a,m_fp);
             tmpptrs[ch]++;
           }
         }
