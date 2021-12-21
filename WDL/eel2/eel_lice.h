@@ -2857,7 +2857,7 @@ void eel_lice_register_standalone(HINSTANCE hInstance, const char *classname, HW
 
 
 #ifdef DYNAMIC_LICE
-static void eel_lice_initfuncs(void *(*getFunc)(const char *name))
+static WDL_STATICFUNC_UNUSED void eel_lice_initfuncs(void *(*getFunc)(const char *name))
 {
   if (!getFunc) return;
 
@@ -2948,13 +2948,13 @@ static const char *eel_lice_function_reference =
   "\4gfx_clear - if greater than -1.0, framebuffer will be cleared to that color. the color for this one is packed RGB (0..255), i.e. red+green*256+blue*65536. The default is 0 (black). \n"
   "\4gfx_dest - destination for drawing operations, -1 is main framebuffer, set to 0.." EEL_LICE_DOC_MAXHANDLE " to have drawing operations go to an offscreen buffer (or loaded image).\n"
   "\4gfx_texth - the (READ-ONLY) height of a line of text in the current font. Do not modify this variable.\n"
-  "\4gfx_ext_retina - to support hidpi/retina, callers should set to 1.0 on initialization, will be updated to 2.0 if high resolution display is supported, and if so gfx_w/gfx_h/etc will be doubled.\n"
+  "\4gfx_ext_retina - to support hidpi/retina, callers should set to 1.0 on initialization, this value will be updated to value greater than 1.0 (such as 2.0) if retina/hidpi. On macOS gfx_w/gfx_h/etc will be doubled, but on other systems gfx_w/gfx_h will remain the same and gfx_ext_retina is a scaling hint for drawing.\n"
   "\4gfx_ext_flags - &1 if context is JSFX embedded in TCP or MCP.\n"
   "\4mouse_x - current X coordinate of the mouse relative to the graphics window.\n"
   "\4mouse_y - current Y coordinate of the mouse relative to the graphics window.\n"
   "\4mouse_wheel - wheel position, will change typically by 120 or a multiple thereof, the caller should clear the state to 0 after reading it.\n"
   "\4mouse_hwheel - horizontal wheel positions, will change typically by 120 or a multiple thereof, the caller should clear the state to 0 after reading it.\n"
-  "\4mouse_cap - a bitfield of mouse and keyboard modifier state:\3"
+  "\4mouse_cap - a bitfield of mouse and keyboard modifier state. Note that a script must call gfx_getchar() at least once in order to get modifier state when the mouse is not captured by the window. Bitfield bits:\3"
     "\4" "1: left mouse button\n"
     "\4" "2: right mouse button\n"
 #ifdef __APPLE__
@@ -2973,7 +2973,7 @@ static const char *eel_lice_function_reference =
   "\2\0"
 
 "gfx_getchar\t[char]\tIf char is 0 or omitted, returns a character from the keyboard queue, or 0 if no character is available, or -1 if the graphics window is not open. "
-     "If char is specified and nonzero, that character's status will be checked, and the function will return greater than 0 if it is pressed.\n\n"
+     "If char is specified and nonzero, that character's status will be checked, and the function will return greater than 0 if it is pressed. Note that calling gfx_getchar() at least once causes mouse_cap to reflect keyboard modifiers even when the mouse is not captured.\n\n"
      "Common values are standard ASCII, such as 'a', 'A', '=' and '1', but for many keys multi-byte values are used, including 'home', 'up', 'down', 'left', 'rght', 'f1'.. 'f12', 'pgup', 'pgdn', 'ins', and 'del'. \n\n"
      "Modified and special keys can also be returned, including:\3\n"
      "\4Ctrl/Cmd+A..Ctrl+Z as 1..26\n"

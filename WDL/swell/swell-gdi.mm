@@ -148,12 +148,22 @@ char g_swell_disable_retina;
 
 int SWELL_IsRetinaHWND(HWND hwnd)
 {
-  if (g_swell_disable_retina) return 0;
   if (!hwnd || SWELL_GDI_GetOSXVersion() < 0x1070) return 0;
 
+  int retina_disabled = g_swell_disable_retina;
   NSWindow *w=NULL;
-  if ([(id)hwnd isKindOfClass:[NSView class]]) w = [(NSView *)hwnd window];
+  if ([(id)hwnd isKindOfClass:[NSView class]])
+  {
+    if (retina_disabled &&
+        [(id)hwnd isKindOfClass:[SWELL_hwndChild class]] &&
+        ((SWELL_hwndChild*)hwnd)->m_glctx != NULL)
+      retina_disabled = 0;
+
+    w = [(NSView *)hwnd window];
+  }
   else if ([(id)hwnd isKindOfClass:[NSWindow class]]) w = (NSWindow *)hwnd;
+
+  if (retina_disabled) return 0;
 
   if (w)
   {
@@ -1476,29 +1486,27 @@ static int ColorFromNSColor_Actual(NSColor *color, int valifnul)
   return RGB((int)(r*255.0),(int)(g*255.0),(int)(b*255.0));
 }
 
-#define ColorFromNSColor(a,b) (b)
-
 int GetSysColor(int idx)
 {
- // NSColors that seem to be valid: textBackgroundColor, selectedTextBackgroundColor, textColor, selectedTextColor
-  
   switch (idx)
   {
-    case COLOR_WINDOW: return ColorFromNSColor([NSColor controlColor],RGB(192,192,192));
-    case COLOR_3DFACE: 
-      if (SWELL_osx_is_dark_mode(1))
-        return ColorFromNSColor_Actual([NSColor windowBackgroundColor],RGB(64,64,64));
-      // fall through
+    case COLOR_WINDOW: return RGB(192,192,192);
 
-    case COLOR_BTNFACE: return ColorFromNSColor([NSColor controlColor],RGB(192,192,192));
-    case COLOR_SCROLLBAR: return ColorFromNSColor([NSColor controlColor],RGB(32,32,32));
-    case COLOR_3DSHADOW: return ColorFromNSColor([NSColor selectedTextBackgroundColor],RGB(96,96,96));
-    case COLOR_3DHILIGHT: return ColorFromNSColor([NSColor selectedTextBackgroundColor],RGB(224,224,224));
-    case COLOR_BTNTEXT: return ColorFromNSColor([NSColor selectedTextBackgroundColor],RGB(0,0,0));
-    case COLOR_3DDKSHADOW: return (ColorFromNSColor([NSColor selectedTextBackgroundColor],RGB(96,96,96))>>1)&0x7f7f7f;
+    case COLOR_BTNFACE:
+    case COLOR_3DFACE: 
+      if (SWELL_osx_is_dark_mode(0)) return RGB(37,37,37);
+    return RGB(232,232,232);
+
+    case COLOR_BTNTEXT:
+      if (SWELL_osx_is_dark_mode(0)) return RGB(255,255,255);
+    return RGB(0,0,0);
+
+    case COLOR_SCROLLBAR: return RGB(32,32,32);
+    case COLOR_3DSHADOW: return RGB(96,96,96);
+    case COLOR_3DHILIGHT: return RGB(224,224,224);
+    case COLOR_3DDKSHADOW: return RGB(48,48,48);
     case COLOR_INFOBK: return RGB(255,240,200);
     case COLOR_INFOTEXT: return RGB(0,0,0);
-      
   }
   return 0;
 }

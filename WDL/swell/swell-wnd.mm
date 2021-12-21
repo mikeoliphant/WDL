@@ -3708,7 +3708,7 @@ void SWELL_UnregisterCustomControlCreator(SWELL_ControlCreatorProc proc)
 static void set_listview_bigsur_style(NSTableView *obj)
 {
   if (SWELL_GetOSXVersion() < 0x1100) return;
-#ifdef MAC_OS_VERSION_11_0
+#if defined(MAC_OS_VERSION_11_0) && (!defined(SWELL_COCOA_WILL_HAVE_PREBIGSUR_SDK) || defined(__aarch64__))
   // newer SDKs default to NSTableViewStyleAutomatic
   int style = (g_swell_osx_style & 2) ? -1 : 4 /* NSTableViewStylePlain */;
 #else
@@ -5357,7 +5357,11 @@ int g_swell_in_paint;
 BOOL InvalidateRect(HWND hwnd, const RECT *r, int eraseBk)
 { 
 #ifdef _DEBUG
-  WDL_ASSERT(!g_swell_in_paint); // not forbidden, but bad form to call InvalidateRect() from within a WM_PAINT
+  if (g_swell_in_paint)
+  {
+    printf("swell-cocoa: calling InvalidateRect() from within paint, this is allowed but bad form.\n");
+    // WDL_ASSERT(false);
+  }
 #endif
 
   if (WDL_NOT_NORMALLY(!hwnd)) return FALSE;
