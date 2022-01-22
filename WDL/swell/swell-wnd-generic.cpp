@@ -499,26 +499,24 @@ void SetForegroundWindow(HWND hwnd)
   if (hwnd) swell_oswindow_focus(hwnd);
 }
 
-void SetFocusInternal(HWND hwnd)
+void SetFocus(HWND hwnd)
 {
+  if (!hwnd) return; // windows allows SetFocus(NULL) to defocus, but we do not support that yet
   hwnd->m_focused_child=NULL; // make sure this window has focus, not a child
   SetForegroundWindow(hwnd);
 }
 
-void SetFocus(HWND hwnd)
+void SWELL_OnNavigationFocus(HWND ch)
 {
-  if (!hwnd) return; // windows allows SetFocus(NULL) to defocus...
-  HWND oldfoc = GetFocus();
-  SetFocusInternal(hwnd);
-
-  if (hwnd->m_classname && oldfoc != hwnd)
+  if (ch && ch->m_classname && (
+       !strcmp(ch->m_classname,"Edit") ||
+       !strcmp(ch->m_classname,"combobox")
+     ))
   {
-    if (!strcmp(hwnd->m_classname,"Edit") ||
-        !strcmp(hwnd->m_classname,"combobox"))
-      SendMessage(hwnd,EM_SETSEL,0,-1);
+    SendMessage(ch,EM_SETSEL,0,-1);
   }
-}
 
+}
 
 int IsChild(HWND hwndParent, HWND hwndChild)
 {
@@ -529,11 +527,9 @@ int IsChild(HWND hwndParent, HWND hwndChild)
   return hwndChild == hwndParent;
 }
 
-
-HWND GetFocusIncludeMenus()
+HWND SWELL_GetFocusedChild(HWND h)
 {
-  HWND h = swell_is_app_inactive()>0 ? NULL : swell_oswindow_to_hwnd(SWELL_focused_oswindow);
-  while (h) 
+  while (h)
   {
     HWND fc = h->m_focused_child;
     if (!fc) break;
@@ -543,6 +539,12 @@ HWND GetFocusIncludeMenus()
     h = s; // descend to focused child
   }
   return h;
+}
+
+HWND GetFocusIncludeMenus()
+{
+  HWND h = swell_is_app_inactive()>0 ? NULL : swell_oswindow_to_hwnd(SWELL_focused_oswindow);
+  return SWELL_GetFocusedChild(h);
 }
 
 HWND GetForegroundWindow()
@@ -1237,7 +1239,7 @@ static LRESULT WINAPI buttonWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
       hwnd->m_private_data=0;
     break;
     case WM_LBUTTONDOWN:
-      SetFocusInternal(hwnd);
+      SetFocus(hwnd);
       SetCapture(hwnd);
       SendMessage(hwnd,WM_USER+100,0,0); // invalidate
     return 0;
@@ -2542,7 +2544,7 @@ static LRESULT WINAPI editWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         ReleaseDC(hwnd,hdc);
 
       }
-      SetFocusInternal(hwnd);
+      SetFocus(hwnd);
       if (msg == WM_LBUTTONDOWN) SetCapture(hwnd);
 
       InvalidateRect(hwnd,NULL,FALSE);
@@ -3044,7 +3046,7 @@ static LRESULT WINAPI trackbarWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
       }
     return 1;
     case WM_LBUTTONDOWN:
-      SetFocusInternal(hwnd);
+      SetFocus(hwnd);
       SetCapture(hwnd);
 
       if (hwnd->m_private_data)
@@ -3478,7 +3480,7 @@ static LRESULT WINAPI comboWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
 
           ReleaseDC(hwnd,hdc);
 
-          SetFocusInternal(hwnd);
+          SetFocus(hwnd);
         }
         SetCapture(hwnd);
       }
@@ -4138,7 +4140,7 @@ static LRESULT listViewWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
     break;
     case WM_LBUTTONDBLCLK:
     case WM_LBUTTONDOWN:
-      SetFocusInternal(hwnd);
+      SetFocus(hwnd);
       if (msg == WM_LBUTTONDOWN) SetCapture(hwnd);
       else ReleaseCapture();
 
@@ -5526,7 +5528,7 @@ static LRESULT treeViewWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
       }
     break;
     case WM_LBUTTONDOWN:
-      SetFocusInternal(hwnd);
+      SetFocus(hwnd);
       SetCapture(hwnd);
       if (tvs)
       {
@@ -5773,7 +5775,7 @@ static LRESULT tabControlWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     case WM_LBUTTONDOWN:
       if (GET_Y_LPARAM(lParam) < TABCONTROL_HEIGHT)
       {
-        SetFocusInternal(hwnd);
+        SetFocus(hwnd);
         int xp=GET_X_LPARAM(lParam),tab;
         HDC dc = GetDC(hwnd);
         int tabchg = -1;
@@ -7020,8 +7022,9 @@ LRESULT SwellDialogDefaultWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
         HWND ch = getNextFocusWindow(hwnd,navdir<0,hwnd->m_focused_child);
         if (ch)
         {
+          HWND oldfoc = GetFocus();
           SetFocus(ch);
-
+          if (oldfoc != ch) SWELL_OnNavigationFocus(ch);
           InvalidateRect(ch,NULL,FALSE);
           return 0;
         }

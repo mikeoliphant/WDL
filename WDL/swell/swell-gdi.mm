@@ -237,7 +237,10 @@ static void *ALIGN_FBUF(void *inbuf)
 
 HDC SWELL_CreateMemContext(HDC hdc, int w, int h)
 {
-  void *buf=calloc(w*4*h+ALIGN_EXTRA,1);
+  // we always allocate an extra row, because StretchBlt() will sometimes pass
+  // rowspan*h to CGDataProviderCreateWithData() with an X offset (and smaller width),
+  // which confuses guard malloc (and is generally possibly unsafe)
+  void *buf=calloc(w*4*(h+1)+ALIGN_EXTRA,1); 
   if (WDL_NOT_NORMALLY(!buf)) return 0;
   CGContextRef c=CGBitmapContextCreate(ALIGN_FBUF(buf),w,h,8,w*4, __GetBitmapColorSpace(), kCGImageAlphaNoneSkipFirst | kCGBitmapByteOrder32Host);
   if (WDL_NOT_NORMALLY(!c))
@@ -1473,34 +1476,14 @@ void *GetNSImageFromHICON(HICON ico)
   return i->bitmapptr;
 }
 
-static int ColorFromNSColor_Actual(NSColor *color, int valifnul)
-{
-  if (!color) return valifnul;
-  CGFloat r,g,b;
-  NSColor *color2=[color colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
-  if (!color2) return valifnul;
-  [color2 getRed:&r green:&g blue:&b alpha:NULL];
-  if (r<0) r=0; else if (r>1) r=1;
-  if (g<0) g=0; else if (g>1) g=1;
-  if (b<0) b=0; else if (b>1) b=1;
-  return RGB((int)(r*255.0),(int)(g*255.0),(int)(b*255.0));
-}
-
 int GetSysColor(int idx)
 {
   switch (idx)
   {
-    case COLOR_WINDOW: return RGB(192,192,192);
-
+    case COLOR_WINDOW:
     case COLOR_BTNFACE:
-    case COLOR_3DFACE: 
-      if (SWELL_osx_is_dark_mode(0)) return RGB(37,37,37);
-    return RGB(232,232,232);
-
-    case COLOR_BTNTEXT:
-      if (SWELL_osx_is_dark_mode(0)) return RGB(255,255,255);
-    return RGB(0,0,0);
-
+    case COLOR_3DFACE: return SWELL_osx_is_dark_mode(0) ? RGB(37,37,37) : RGB(232,232,232);
+    case COLOR_BTNTEXT: return SWELL_osx_is_dark_mode(0) ? RGB(255,255,255) : RGB(0,0,0);
     case COLOR_SCROLLBAR: return RGB(32,32,32);
     case COLOR_3DSHADOW: return RGB(96,96,96);
     case COLOR_3DHILIGHT: return RGB(224,224,224);
