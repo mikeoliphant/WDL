@@ -314,7 +314,7 @@ void swell_recalcMinMaxInfo(HWND hwnd)
   h.max_height= mmi.ptMaxSize.y;
   h.min_width= mmi.ptMinTrackSize.x;
   h.min_height= mmi.ptMinTrackSize.y;
-  gdk_window_set_geometry_hints(hwnd->m_oswindow,&h,(GdkWindowHints) (GDK_HINT_POS | GDK_HINT_MIN_SIZE | GDK_HINT_MAX_SIZE));
+  gdk_window_set_geometry_hints(hwnd->m_oswindow,&h,(GdkWindowHints) ((hwnd->m_has_had_position ? GDK_HINT_POS : 0) | GDK_HINT_MIN_SIZE | GDK_HINT_MAX_SIZE));
 }
 
 void SWELL_initargs(int *argc, char ***argv) 
@@ -700,6 +700,7 @@ void swell_oswindow_manage(HWND hwnd, bool wantfocus)
           if (!hwnd->m_oswindow_fullscreen)
           {
             swell_oswindow_resize(hwnd->m_oswindow,hwnd->m_has_had_position?3:2,r);
+            swell_oswindow_postresize(hwnd,r);
           }
 
           swell_set_owned_windows_transient(hwnd, true);
@@ -1877,6 +1878,15 @@ void swell_oswindow_postresize(HWND hwnd, RECT f)
     hwnd->m_oswindow_private &= ~PRIVATE_NEEDSHOW;
 
     swell_set_owned_windows_transient(hwnd,false);
+  }
+  if (hwnd->m_oswindow && !(hwnd->m_style&WS_THICKFRAME))
+  {
+    // kwin requires this for non-sizeable windows (doing it in the configure event is too late, apparently)
+    GdkGeometry h;
+    memset(&h,0,sizeof(h));
+    h.max_width = h.min_width = f.right - f.left;
+    h.max_height = h.min_height = f.bottom - f.top;
+    gdk_window_set_geometry_hints(hwnd->m_oswindow,&h,(GdkWindowHints) ((hwnd->m_has_had_position ? GDK_HINT_POS : 0) | GDK_HINT_MIN_SIZE | GDK_HINT_MAX_SIZE));
   }
 }
 
