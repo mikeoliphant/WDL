@@ -21,6 +21,9 @@
 
 */
 
+#ifndef _WDL_BLOWFISH_H_
+#define _WDL_BLOWFISH_H_
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -51,3 +54,5 @@ int Blowfish_CBC_Decrypt(BLOWFISH_CBC_CTX *ctx, void *buf, int bufLen);
 #ifdef __cplusplus
 };
 #endif
+
+#endif //_WDL_BLOWFISH_H_
