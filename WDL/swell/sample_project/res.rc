@@ -21,6 +21,15 @@ LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
 #pragma code_page(1252)
 #endif //_WIN32
 
+/////////////////////////////////////////////////////////////////////////////
+//
+// Icon
+//
+
+// Icon with lowest ID value placed first to ensure application icon
+// remains consistent on all systems.
+IDI_ICON1               ICON    DISCARDABLE     "icon1.ico"
+
 #ifdef APSTUDIO_INVOKED
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -52,14 +61,12 @@ END
 // Dialog
 //
 
-IDD_DIALOG1 DIALOG DISCARDABLE  0, 0, 264, 117
-STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
-CAPTION "Sample app"
-MENU IDR_MENU1
+IDD_DIALOG1 DIALOG DISCARDABLE  0, 0, 377, 261
+STYLE DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME
+CAPTION "SWELL MyApp"
 FONT 8, "MS Sans Serif"
 BEGIN
-    EDITTEXT        IDC_EDIT1,59,50,145,14,ES_AUTOHSCROLL
-    LTEXT           "Enter some text here:",IDC_STATIC,59,39,73,8
+    PUSHBUTTON      "Quit",IDCANCEL,4,244,50,14
 END
 
 
@@ -73,33 +80,59 @@ GUIDELINES DESIGNINFO DISCARDABLE
 BEGIN
     IDD_DIALOG1, DIALOG
     BEGIN
-        LEFTMARGIN, 7
-        RIGHTMARGIN, 257
-        TOPMARGIN, 7
-        BOTTOMMARGIN, 110
+        LEFTMARGIN, 4
+        RIGHTMARGIN, 374
+        TOPMARGIN, 3
+        BOTTOMMARGIN, 258
     END
 END
 #endif    // APSTUDIO_INVOKED
 
 
+#ifndef _MAC
 /////////////////////////////////////////////////////////////////////////////
 //
-// Menu
+// Version
 //
 
-IDR_MENU1 MENU DISCARDABLE 
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 0,0,0,1
+ PRODUCTVERSION 0,0,0,1
+ FILEFLAGSMASK 0x3fL
+#ifdef _DEBUG
+ FILEFLAGS 0x1L
+#else
+ FILEFLAGS 0x0L
+#endif
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
 BEGIN
-    POPUP "&File"
+    BLOCK "StringFileInfo"
     BEGIN
-        MENUITEM "MessageBox the string",       ID_SOMETHING
-        MENUITEM SEPARATOR
-        MENUITEM "&Quit",                       ID_QUIT
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "Comments", "\0"
+            VALUE "CompanyName", "unknown\0"
+            VALUE "FileDescription", "swell_myapp\0"
+            VALUE "FileVersion", "0, 0, 0, 1\0"
+            VALUE "InternalName", "swell_myapp\0"
+            VALUE "LegalCopyright", "Copyright © 2022 and onwards\0"
+            VALUE "LegalTrademarks", "\0"
+            VALUE "OriginalFilename", "MyApp.exe\0"
+            VALUE "PrivateBuild", "\0"
+            VALUE "ProductName", "swell_myapp\0"
+            VALUE "ProductVersion", "0, 0, l, 1\0"
+            VALUE "SpecialBuild", "\0"
+        END
     END
-    POPUP "&Help"
+    BLOCK "VarFileInfo"
     BEGIN
-        MENUITEM "&About",                      ID_ABOUT
+        VALUE "Translation", 0x409, 1200
     END
 END
+
+#endif    // !_MAC
 
 #endif    // English (U.S.) resources
 /////////////////////////////////////////////////////////////////////////////
