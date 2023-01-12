@@ -1437,6 +1437,15 @@ static LRESULT WINAPI suggestionProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
           }
           else if (sel != hit)
           {
+            POINT pt;
+            GetCursorPos(&pt);
+            if (wdl_abs(pt.x - editor->m_suggestion_hwnd_initmousepos.x) +
+                wdl_abs(pt.y - editor->m_suggestion_hwnd_initmousepos.y) < ctx->m_font_h*3/4)
+            {
+              return 0;
+            }
+            editor->m_suggestion_hwnd_initmousepos.x = pt.x + 0x10000000;
+
             editor->m_suggestion_hwnd_sel = hit;
             InvalidateRect(hwnd,NULL,FALSE);
 
@@ -1603,6 +1612,33 @@ int EEL_Editor::onChar(int c)
             WDL_NORMALLY(m_suggestion_tokpos+m_suggestion_toklen <= l->GetLength()))
         {
           preSaveUndoState();
+          if (sug_mode == suggested_matchlist::MODE_USERFUNC)
+          {
+            const char *tok = l->Get() + m_suggestion_tokpos;
+            for (int j = m_suggestion_toklen - 1; j >= 0; j --)
+            {
+              if (tok[j] == '.')
+              {
+                const char *be = buf;
+                while (*be) be++;
+                while (be > buf && *be != '.') be--;
+                if (be > buf)
+                {
+                  // buf is foo.bar, lead_sz=3, if j>=3 check for common prefix
+                  const int lead_sz = (int) (be-buf);
+                  if (j == lead_sz || (j > lead_sz && tok[j-lead_sz-1] == '.'))
+                  {
+                    // prefixes match, ignore
+                    if (!strnicmp(buf, tok + j - lead_sz, lead_sz+1)) continue;
+                  }
+                }
+
+                m_suggestion_tokpos += j+1;
+                m_suggestion_toklen -= j+1;
+                break;
+              }
+            }
+          }
           l->DeleteSub(m_suggestion_tokpos,m_suggestion_toklen);
           l->Insert(buf,m_suggestion_tokpos);
           int pos = m_suggestion_tokpos + strlen(buf);
@@ -1844,6 +1880,8 @@ run_suggest:
                 SetWindowPos(m_suggestion_hwnd,NULL,xpos,ypos,use_w,use_h, SWP_NOZORDER|SWP_NOACTIVATE);
                 InvalidateRect(m_suggestion_hwnd,NULL,FALSE);
                 ShowWindow(m_suggestion_hwnd,SW_SHOWNA);
+
+                GetCursorPos(&m_suggestion_hwnd_initmousepos);
               }
               did_fuzzy = true;
               const char *p = m_suggestion_list.get(wdl_max(m_suggestion_hwnd_sel,0));
