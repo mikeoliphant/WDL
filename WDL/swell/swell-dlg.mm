@@ -996,7 +996,7 @@ static void SendTreeViewExpandNotification(SWELL_hwndChild *par, NSNotification 
     else if ([sender isKindOfClass:[SWELL_Button class]])
     {
       int rf;
-      if ((rf=(int)[(SWELL_Button*)sender swellGetRadioFlags]))
+      if ((rf=(int)[(SWELL_Button*)sender swellGetRadioFlags]) & ~4096)
       {
         NSView *par=(NSView *)GetParent((HWND)sender);
         if (par && [par isKindOfClass:[NSWindow class]]) par=[(NSWindow *)par contentView];
@@ -1915,7 +1915,10 @@ static void MakeGestureInfo(NSEvent* evt, GESTUREINFO* gi, HWND hwnd, int type)
   NSArray* SWELL_DoDragDrop(NSURL*);
   return SWELL_DoDragDrop(dropdestination); 
 }
-
+- (BOOL)ignoreModifierKeysWhileDragging
+{
+  return GetProp((HWND)self,"SWELL_IgnoreModifierKeysWhileDragging") != NULL ? YES : NO;
+}
 
 - (BOOL)becomeFirstResponder 
 {

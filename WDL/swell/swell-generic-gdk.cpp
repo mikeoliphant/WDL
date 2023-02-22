@@ -229,6 +229,7 @@ static void on_deactivate()
     PostMessage(h,WM_ACTIVATEAPP,0,0);
     h=h->m_next;
   }
+  swell_on_toplevel_raise(NULL);
   DestroyPopupMenus();
 }
 
@@ -1406,11 +1407,12 @@ static void OnButtonEvent(GdkEventButton *b)
     }
   }
 
-  if (hwnd && hwnd->m_oswindow && SWELL_focused_oswindow != hwnd->m_oswindow)
+  if (hwnd && hwnd->m_oswindow && SWELL_focused_oswindow != hwnd->m_oswindow &&
+      (b->type != GDK_BUTTON_RELEASE || PopupMenuIsActive()))
   {
-    // this should not be necessary, focus is sent via separate events
-    // (the only time I've ever seen this is when launching a popup menu via the mousedown handler, on the mouseup
-    // the menu has not yet been focused but the mouse event goes to the popup menu)
+    // 'b->type != GDK_BUTTON_RELEASE ||' might not be necessary, the only time this
+    // appears to matter is when popup menus are active (focus events aren't sent
+    // probably due to the override redirect menu windows)
     SWELL_focused_oswindow = hwnd->m_oswindow;
     update_menubar_activations();
   }
