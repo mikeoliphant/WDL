@@ -2251,9 +2251,11 @@ void SetWindowPos(HWND hwnd, HWND hwndAfter, int x, int y, int cx, int cy, int f
             [v retain];
             [v removeFromSuperviewWithoutNeedingDisplay];
             [par addSubview:v positioned:omode relativeTo:viewafter];
-            [v release];
           
-            if (oldfoc) [[v window] makeFirstResponder:oldfoc];
+            if (oldfoc && [oldfoc isKindOfClass:[NSView class]] && [oldfoc window] == [v window])
+              [[v window] makeFirstResponder:oldfoc];
+
+            [v release];
           }
         }
       }
@@ -3154,6 +3156,16 @@ void ShowWindow(HWND hwnd, int cmd)
     {
       [pid orderOut:pid];
     }
+    else if (cmd==SW_SHOWMAXIMIZED)
+    {
+      if (![pid isZoomed]) [pid zoom:nil];
+      [pid orderFront:pid];
+    }
+    else if (cmd == SW_RESTORE)
+    {
+      if ([pid isZoomed]) [pid zoom:nil];
+      [pid orderFront:pid];
+    }
     else if (cmd == SW_SHOWMINIMIZED)
     {   
       // this ought to work
@@ -3174,6 +3186,8 @@ void ShowWindow(HWND hwnd, int cmd)
   
   switch (cmd)
   {
+    case SW_RESTORE:
+    case SW_SHOWMAXIMIZED:
     case SW_SHOW:
     case SW_SHOWNA:
       [((NSView *)pid) setHidden:NO];
