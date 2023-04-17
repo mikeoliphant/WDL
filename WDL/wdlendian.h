@@ -31,7 +31,6 @@
 
 
 #include <string.h>
-#include "wdltypes.h"
 
 #ifdef __cplusplus
 	#define WDL_ENDIAN_INLINE inline
@@ -76,8 +75,12 @@
 // Intel C++
 #elif defined(__x86_64) || defined(__x86_64__)
 #define WDL_LITTLE_ENDIAN
+#endif
 
-#else
+// WDL
+#include "wdltypes.h"
+
+#if !(defined(WDL_LITTLE_ENDIAN) || defined(WDL_BIG_ENDIAN))
 #error Unknown endian
 #endif
 
