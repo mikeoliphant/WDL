@@ -1882,11 +1882,22 @@ static const ChanLayout CHAN_LAYOUTS[]=
     kAudioChannelBit_Left | kAudioChannelBit_Right |
     kAudioChannelBit_LeftSurround | kAudioChannelBit_RightSurround },
 
+  { "cw", 5, "L R C Ls Rs",
+    kAudioChannelLayoutTag_UseChannelBitmap,
+    kAudioChannelBit_Left | kAudioChannelBit_Right | kAudioChannelBit_Center |
+    kAudioChannelBit_LeftSurround | kAudioChannelBit_RightSurround },
+
   { "cw", 6, "L R C LFE Ls Rs",
     kAudioChannelLayoutTag_UseChannelBitmap,
     kAudioChannelBit_Left | kAudioChannelBit_Right | kAudioChannelBit_Center |
     kAudioChannelBit_LFEScreen |
     kAudioChannelBit_LeftSurround | kAudioChannelBit_RightSurround },
+
+  { "cw", 6, "L R Ls Rs Lsd Rsd",
+    kAudioChannelLayoutTag_UseChannelBitmap,
+    kAudioChannelBit_Left | kAudioChannelBit_Right |
+    kAudioChannelBit_LeftSurround | kAudioChannelBit_RightSurround |
+    kAudioChannelBit_LeftSurroundDirect | kAudioChannelBit_RightSurroundDirect },
 
   { "cw", 8, "L R C LFE Ls Rs Lsd Rsd",
     kAudioChannelLayoutTag_UseChannelBitmap,

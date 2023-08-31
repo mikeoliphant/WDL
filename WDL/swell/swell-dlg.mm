@@ -55,62 +55,6 @@ static id __class_CAMetalLayer, __class_MTLRenderPassDescriptor, __class_MTLText
 static id<MTLDevice> (*__MTLCreateSystemDefaultDevice)(void);
 static id<MTLDevice> (*__CGDirectDisplayCopyCurrentMetalDevice)(CGDirectDisplayID);
 
-struct mtl_dev_rec {
-  id<MTLFunction> vertexFunction,fragmentFunction;
-};
-
-static void get_dev_shaders(id<MTLDevice> dev, id<MTLFunction> *vertex, id<MTLFunction> *frag)
-{
-  static WDL_PtrKeyedArray<mtl_dev_rec> s_mtl_device_recs;
-  mtl_dev_rec *p = s_mtl_device_recs.GetPtr((INT_PTR)dev);
-  if (p)
-  {
-    *vertex = p->vertexFunction;
-    *frag = p->fragmentFunction;
-    return;
-  }
-
-  mtl_dev_rec rec={NULL, };
-  // open device, compiler shaders
-  id opt = (id)[[__class_MTLCompileOptions alloc] init];
-  NSError *err=NULL;
-  NSString *code = 
-@"#include <metal_stdlib>\n"
-@"#include <simd/simd.h>\n"
-@"using namespace metal;\n"
-@"typedef struct { float4 position [[position]]; float2 textureCoordinate; } RasterizerData;\n"
-@"vertex RasterizerData\n"
-@"vertexShader(uint vertexID [[ vertex_id ]], constant vector_float2 *vertexArray [[ buffer(0) ]]) {\n"
-@"    RasterizerData out;\n"
-@"    out.position = vector_float4(0.0, 0.0, 0.0, 1.0);\n"
-@"    out.position.xy = vertexArray[vertexID*2].xy;\n"
-@"    out.textureCoordinate = vertexArray[vertexID*2+1].xy;\n"
-@"    return out;\n"
-@"}\n"
-@"fragment float4\n"
-@"samplingShader(RasterizerData in [[stage_in]], texture2d<half> colorTexture [[ texture(0) ]]) { \n"
-@"   constexpr sampler textureSampler (mag_filter::linear, min_filter::linear);\n"
-@"   const half4 colorSample = colorTexture.sample(textureSampler, in.textureCoordinate);\n"
-@"   return float4(colorSample);\n"
-@"}\n";
-
-  id<MTLLibrary> mtl_lib = [dev newLibraryWithSource:code options:opt error:&err];
-  if (err) NSLog(@"swell-cocoa: error compiling metal shaders for device %p %@: %@\n",dev,dev.name,err);
-  [opt release];
-
-  if (mtl_lib &&
-      (*vertex = rec.vertexFunction = [mtl_lib newFunctionWithName:@"vertexShader"]) &&
-      (*frag = rec.fragmentFunction = [mtl_lib newFunctionWithName:@"samplingShader"]))
-  {
-    NSLog(@"swell-cocoa: mtl ok for device %p %@!\n", dev, dev.name);
-  }
-  else
-  {
-    NSLog(@"swell-cocoa: mtl failed functions for device %p %@!\n", dev, dev.name);
-  }
-  s_mtl_device_recs.Insert((INT_PTR)dev, rec);
-}
-
 #endif
 
 @interface NSRectSet : NSObject
@@ -615,6 +559,42 @@ static void SendTreeViewExpandNotification(SWELL_hwndChild *par, NSNotification 
   }
 }
 
+#ifndef SWELL_NO_METAL
+struct swell_metal_device_ctx {
+  swell_metal_device_ctx()
+  {
+    m_commandQueue = NULL;
+    m_commandBuffer = NULL;
+  }
+
+  id<MTLCommandQueue> m_commandQueue;
+  id<MTLCommandBuffer> m_commandBuffer;
+
+  void present()
+  {
+    if (m_commandBuffer)
+    {
+      [m_commandBuffer commit];
+      [m_commandBuffer release];
+      m_commandBuffer = NULL;
+    }
+  }
+};
+static WDL_PtrKeyedArray<swell_metal_device_ctx *> s_metal_devices; // indexed by id<MTLDevice>
+static int s_metal_devicelist_updcnt;
+static bool s_mtl_in_update;
+
+@interface SWELL_MetalNotificationHandler : NSObject
+- (void)handleDisplayChanges:(NSNotification *)notification;
+@end
+
+@implementation SWELL_MetalNotificationHandler : NSObject
+- (void)handleDisplayChanges:(NSNotification *)notification
+{
+  s_metal_devicelist_updcnt++;
+}
+@end
+#endif
 
 @implementation SWELL_hwndChild : NSView 
 
@@ -639,6 +619,7 @@ static void SendTreeViewExpandNotification(SWELL_hwndChild *par, NSNotification 
 #ifndef SWELL_NO_METAL
   if (m_use_metal>0) 
   {
+    SWELL_AutoReleaseHelper arparp;
     [self swellDrawMetal:NULL];
     swell_removeMetalDirty(self);
   }
@@ -1073,13 +1054,9 @@ static void SendTreeViewExpandNotification(SWELL_hwndChild *par, NSNotification 
   if (m_use_metal == 2)
   {
     [m_metal_texture release];
-    [m_metal_pipelineState release];
-    [m_metal_commandQueue release];
   }
   m_metal_drawable=NULL;
   m_metal_texture=NULL;
-  m_metal_pipelineState=NULL;
-  m_metal_commandQueue=NULL;
   if (m_use_metal>0) swell_removeMetalDirty(self);
 #endif
   SWELL_MessageQueue_Clear((HWND)self);
@@ -1247,11 +1224,9 @@ static void SendTreeViewExpandNotification(SWELL_hwndChild *par, NSNotification 
   m_metal_dc_dirty=0;
   m_metal_retina=false;
   m_metal_device=NULL;
-  m_metal_device_lastchkt=0;
+  m_metal_devicelist_updcnt=0;
   m_metal_texture=NULL;
   m_metal_drawable=NULL;
-  m_metal_pipelineState=NULL;
-  m_metal_commandQueue=NULL;
   m_metal_in_needref_list=false;
   m_metal_gravity=0;
   memset(&m_metal_lastframe,0,sizeof(m_metal_lastframe));
@@ -1515,7 +1490,6 @@ static void SendTreeViewExpandNotification(SWELL_hwndChild *par, NSNotification 
 -(void) swellDrawMetal:(const RECT *)forRect
 {
 #ifndef SWELL_NO_METAL
-  SWELL_AutoReleaseHelper arparp;
 
 #define swell_metal_set_layer_gravity(layer, g) do { \
   const int grav = (g); \
@@ -1526,23 +1500,35 @@ static void SendTreeViewExpandNotification(SWELL_hwndChild *par, NSNotification 
   const bool direct_mode = m_use_metal == 1;
 
   CAMetalLayer *layer = (CAMetalLayer *)[self layer];
+  layer.framebufferOnly = NO;
 
   id<MTLDevice> device = m_metal_device;
 
-#if 1
-  // support multiple devices. only check every second for device changes (it will use the old device and be slower in that duration)
-  // (checking the device takes about 20uS, which isn't a lot but also isn't nothing)
-
-  // this seems to work correclty, *except* - if you're using the high-performance card, the system will never go back to integrated,
-  // presumably because our metal devices are open. Maybe we can flag them as "non-essential" ?
-  const DWORD now = GetTickCount();
-  if (__CGDirectDisplayCopyCurrentMetalDevice && (!device || (now-m_metal_device_lastchkt)>1000))
+  static bool reg;
+  if (!reg)
   {
-    m_metal_device_lastchkt = now;
+    reg = true;
+    id s = [[SWELL_MetalNotificationHandler alloc] init];
+    [[NSNotificationCenter defaultCenter] addObserver:s
+                                             selector:@selector(handleDisplayChanges:)
+                                                 name:NSWindowDidChangeScreenNotification
+                                               object:nil];
+
+    [[NSNotificationCenter defaultCenter] addObserver:s
+                                             selector:@selector(handleDisplayChanges:)
+                                                 name:NSApplicationDidChangeScreenParametersNotification
+                                               object:nil];
+  }
+
+  if (__CGDirectDisplayCopyCurrentMetalDevice && (!device || m_metal_devicelist_updcnt != s_metal_devicelist_updcnt))
+  {
+    m_metal_devicelist_updcnt = s_metal_devicelist_updcnt;
     CGDirectDisplayID viewDisplayID = (CGDirectDisplayID) [self.window.screen.deviceDescription[@"NSScreenNumber"] unsignedIntegerValue];
     device = __CGDirectDisplayCopyCurrentMetalDevice(viewDisplayID);
+    if (device == m_metal_device)
+      [device release];
   }
-#endif
+
   if (!device)
   {
     static id<MTLDevice> def;
@@ -1561,36 +1547,23 @@ static void SendTreeViewExpandNotification(SWELL_hwndChild *par, NSNotification 
       layer.framebufferOnly = NO;
     [layer setPixelFormat:MTLPixelFormatBGRA8Unorm];
 
-    [m_metal_pipelineState release];
-    [m_metal_commandQueue release];
     if (!direct_mode) [m_metal_texture release];
 
-    m_metal_commandQueue = NULL;
-    m_metal_pipelineState = NULL;
     m_metal_texture = NULL;
     m_metal_drawable = NULL;
   }
 
-  if (!device) return;
-
-  if (!direct_mode)
+  if (!device)
   {
-    if (!m_metal_pipelineState)
-    {
-      id<MTLFunction> vertex = NULL, frag = NULL;
-      get_dev_shaders(device, &vertex, &frag);
-      if (!vertex || !frag) return; // fail
+    NSLog(@"swell-cocoa: no metal device\n");
+    return;
+  }
 
-      MTLRenderPipelineDescriptor *pipelineStateDescriptor = [[__class_MTLRenderPipelineDescriptor alloc] init];
-
-      pipelineStateDescriptor.vertexFunction = vertex;
-      pipelineStateDescriptor.fragmentFunction = frag;
-      pipelineStateDescriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
-
-      NSError *error = NULL;
-      m_metal_pipelineState = [device newRenderPipelineStateWithDescriptor:pipelineStateDescriptor error:&error];
-      [pipelineStateDescriptor release];
-    }
+  swell_metal_device_ctx *ctx = s_metal_devices.Get((INT_PTR)device);
+  if (!ctx)
+  {
+    ctx = new swell_metal_device_ctx;
+    s_metal_devices.Insert((INT_PTR)device, ctx);
   }
 
   RECT cr;
@@ -1659,7 +1632,11 @@ static void SendTreeViewExpandNotification(SWELL_hwndChild *par, NSNotification 
   if (!tex) return; // this can happen if GetDC()/ReleaseDC() are called before the first WM_PAINT
 
   NSRect bounds = [self bounds];
-  if (bounds.size.width < 1 || bounds.size.height < 1) return;
+  if (bounds.size.width < 1 || bounds.size.height < 1)
+  {
+    NSLog(@"swell-cocoa: metal with empty bounds\n");
+    return;
+  }
 
   if (m_metal_retina)
   {
@@ -1686,45 +1663,29 @@ static void SendTreeViewExpandNotification(SWELL_hwndChild *par, NSNotification 
   }
 
 
-  RECT r = {0,0, (int)bounds.size.width, (int)bounds.size.height };
+  if (!ctx->m_commandQueue)
+    ctx->m_commandQueue = [device newCommandQueue];
 
-  const float x_sc = (float) (r.right / (double)tex.width);
-  const float y_sc = (float) (r.bottom / (double)tex.height);
-
-  vector_float2 quads[] =
+  if (!ctx->m_commandBuffer)
   {
-    {  1,  -1 }, {x_sc, y_sc}, 
-    { -1,  -1 }, {0, y_sc},
-    { -1,   1 }, {0, 0},
+    ctx->m_commandBuffer = [ctx->m_commandQueue commandBuffer];
+    [ctx->m_commandBuffer retain];
+  }
 
-    {  1,  -1 }, {x_sc, y_sc},
-    { -1,   1 }, {0, 0},
-    {  1,   1 }, {x_sc, 0},
-  };
+  id<MTLBlitCommandEncoder> encoder = [ctx->m_commandBuffer blitCommandEncoder];
 
-  if (!m_metal_commandQueue)
-    m_metal_commandQueue = [device newCommandQueue];
+  [encoder copyFromTexture:m_metal_texture
+    sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0,0,0)
+      sourceSize:MTLSizeMake(bounds.size.width,bounds.size.height,1.0)
+      toTexture:drawable.texture
+      destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0,0,0)];
 
-  id<MTLCommandBuffer> commandBuffer = [m_metal_commandQueue commandBuffer];
+  [encoder endEncoding];
 
-  MTLRenderPassDescriptor *renderPassDescriptor = [__class_MTLRenderPassDescriptor renderPassDescriptor];
-  renderPassDescriptor.colorAttachments[0].texture = drawable.texture;
+  [ctx->m_commandBuffer presentDrawable:drawable];
 
-  id<MTLRenderCommandEncoder> renderEncoder = [commandBuffer renderCommandEncoderWithDescriptor:renderPassDescriptor];
-
-  // Set the region of the drawable to draw into.
-  [renderEncoder setViewport:(MTLViewport){0.0, 0.0, (double)r.right,(double)r.bottom, -1.0, 1.0 }];
-
-  [renderEncoder setRenderPipelineState:m_metal_pipelineState];
-  [renderEncoder setVertexBytes:quads length:sizeof(quads) atIndex:0];
-  [renderEncoder setFragmentTexture:m_metal_texture atIndex:0];
-
-  [renderEncoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6];
-
-  [renderEncoder endEncoding];
-
-  [commandBuffer presentDrawable:drawable];
-  [commandBuffer commit];
+  if (!s_mtl_in_update)
+    ctx->present();
 #endif
 }
 
@@ -4366,9 +4327,10 @@ int SWELL_EnableMetal(HWND hwnd, int mode)
 void swell_updateAllMetalDirty() // run from a timer, or called by UpdateWindow()
 {
 #ifndef SWELL_NO_METAL
-  static bool r;
-  if (r) return;
-  r=true;
+  if (s_mtl_in_update || !s_mtl_dirty_list.GetSize()) return;
+  SWELL_AutoReleaseHelper arparp;
+
+  s_mtl_in_update = true;
 
   NSWindow *lw = NULL;
   bool lw_occluded = false;
@@ -4397,7 +4359,14 @@ void swell_updateAllMetalDirty() // run from a timer, or called by UpdateWindow(
     [slf swellDrawMetal:&tr];
   }
 
-  r=false;
+  for (int i = 0; ; i ++)
+  {
+    swell_metal_device_ctx *c = s_metal_devices.Enumerate(i);
+    if (!c) break;
+    c->present();
+  }
+
+  s_mtl_in_update = false;
 #endif
 }
 
