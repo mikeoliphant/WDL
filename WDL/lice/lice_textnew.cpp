@@ -532,7 +532,7 @@ LICE_CachedFont::charEnt *LICE_CachedFont::findChar(unsigned short c)
 }
 
 bool LICE_CachedFont::DrawGlyph(LICE_IBitmap *bm, unsigned short c, 
-                                int xpos, int ypos, RECT *clipR)
+                                int xpos, int ypos, const RECT *clipR)
 {
   charEnt *ch = findChar(c);
 
@@ -553,7 +553,7 @@ bool LICE_CachedFont::DrawGlyph(LICE_IBitmap *bm, unsigned short c,
   if (xpos >= clipR->right || 
       ypos >= clipR->bottom ||
       xpos+ch->width <= clipR->left || 
-      ypos+ch->height <= clipR->top) return false;
+      ypos+ch->height <= clipR->top) return true; // would have drawn but out of bounds
 
   unsigned char *gsrc = m_cachestore.Get() + ch->base_offset-1;
   int src_span = ch->width;
@@ -1216,9 +1216,6 @@ finish_up_native_render:
     if (dtFlags & DT_VCENTER)
     {
       ypos += (use_rect.bottom-use_rect.top-tr.bottom)/2;
-#ifdef __APPLE__
-      ypos+=2;
-#endif
     }
     else if (dtFlags & DT_BOTTOM)
     {

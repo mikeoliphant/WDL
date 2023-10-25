@@ -1746,13 +1746,10 @@ EEL_F eel_lice_state::gfx_setcursor(void* opaque, EEL_F** parms, int nparms)
   if (chg)
   {
     m_cursor = NULL;
-    if (m_cursor_resid > 0)
-    {
-      if (!p || !*p) m_cursor = LoadCursor(NULL, MAKEINTRESOURCE(m_cursor_resid));
+    if (!p || !*p) m_cursor = m_cursor_resid > 0 ? LoadCursor(NULL, MAKEINTRESOURCE(m_cursor_resid)) : NULL;
 #ifdef EEL_LICE_LOADTHEMECURSOR
-      else m_cursor = EEL_LICE_LOADTHEMECURSOR(m_cursor_resid, p);
+    else m_cursor = EEL_LICE_LOADTHEMECURSOR(m_cursor_resid, p);
 #endif
-    }
 
     bool do_set = GetCapture() == hwnd_standalone;
     if (!do_set && GetFocus() == hwnd_standalone)
@@ -1828,7 +1825,6 @@ void eel_lice_state::gfx_drawstr(void *opaque, EEL_F **parms, int nparms, int fo
 
   if (s_len)
   {
-    SetImageDirty(dest);
     if (formatmode>=2)
     {
       if (nfmtparms==2)
@@ -1849,6 +1845,7 @@ void eel_lice_state::gfx_drawstr(void *opaque, EEL_F **parms, int nparms, int fo
         r.right=(int)*parms[2];
         r.bottom=(int)*parms[3];
       }
+      SetImageDirty(dest);
       *m_gfx_x=__drawTextWithFont(dest,&r,GetActiveFont(),s,s_len,
         getCurColor(),getCurMode(),(float)*m_gfx_a,flags,m_gfx_y,NULL);
     }
@@ -3140,7 +3137,7 @@ static const char *eel_lice_function_reference =
     "gfx_showmenu(\"first item, followed by separator||!second item, checked|>third item which spawns a submenu|#first item in submenu, grayed out|<second and last item in submenu|fourth item in top menu\")\0"  
   
 #ifdef EEL_LICE_LOADTHEMECURSOR
-  "gfx_setcursor\tresource_id,custom_cursor_name\tSets the mouse cursor. resource_id is a value like 32512 (for an arrow cursor), custom_cursor_name is a string description (such as \"arrow\") that will be override the resource_id, if available. In either case resource_id should be nonzero.\0"
+  "gfx_setcursor\tresource_id,custom_cursor_name\tSets the mouse cursor to resource_id and/or custom_cursor_name. \0" // REAPER has extended help elsewhere
 #else
   "gfx_setcursor\tresource_id\tSets the mouse cursor. resource_id is a value like 32512 (for an arrow cursor).\0"
 #endif

@@ -1520,6 +1520,7 @@ LONG_PTR SetWindowLong(HWND hwnd, int idx, LONG_PTR val)
   
   if ([pid respondsToSelector:@selector(setSwellExtraData:value:)])
   {
+    WDL_ASSERT(idx>=0); // caller may be using a GWLP_* which is not yet implemented
     LONG_PTR ov=0;
     if ([pid respondsToSelector:@selector(getSwellExtraData:)]) ov=(LONG_PTR)[pid getSwellExtraData:idx];
 
@@ -1528,6 +1529,7 @@ LONG_PTR SetWindowLong(HWND hwnd, int idx, LONG_PTR val)
     return ov;
   }
    
+  WDL_ASSERT(false); // caller may be using a GWLP_* which is not yet implemented, or an extra index on a non-hwndchild
   SWELL_END_TRY(;)
   return 0;
 }
@@ -1570,10 +1572,14 @@ LONG_PTR GetWindowLong(HWND hwnd, int idx)
   {
     return (LONG_PTR)[pid getSwellWindowProc];
   }
-  if (idx==DWL_DLGPROC && [pid respondsToSelector:@selector(getSwellDialogProc)])
+  if (idx==DWL_DLGPROC)
   {
-    return (LONG_PTR)[pid getSwellDialogProc];
-  }  
+    if ([pid respondsToSelector:@selector(getSwellDialogProc)])
+    {
+      return (LONG_PTR)[pid getSwellDialogProc];
+    }
+    return 0; // do not assert if GetWindowLongPtr DWLP_DLGPROC, used to query if something is a particular dialog
+  }
   if (idx==GWL_STYLE)
   {
     int ret=0;
@@ -1625,9 +1631,11 @@ LONG_PTR GetWindowLong(HWND hwnd, int idx)
 
   if ([pid respondsToSelector:@selector(getSwellExtraData:)])
   {
+    WDL_ASSERT(idx>=0); // caller may be using a GWLP_* which is not yet implemented
     return (LONG_PTR)[pid getSwellExtraData:idx];
   }
   
+  WDL_ASSERT(false); // caller may be using a GWLP_* which is not yet implemented, or an extra index on a non-hwndchild
   SWELL_END_TRY(;)
   return 0;
 }
@@ -5195,7 +5203,7 @@ int ListView_HitTest(HWND h, LVHITTESTINFO *pinf)
     }
     else 
     {
-      pinf->flags=LVHT_NOWHERE;
+      pinf->flags = y < 10 && ListView_GetItemCount(h)>0 ? LVHT_ABOVE : LVHT_NOWHERE;
     }
   }
   
@@ -6873,8 +6881,20 @@ void SWELL_DrawFocusRect(HWND hwndPar, RECT *rct, void **handle)
 @implementation SWELL_PopUpButton
 STANDARD_CONTROL_NEEDSDISPLAY_IMPL("combobox")
 
+
+-(id) init {
+  self = [super init];
+  if (self != nil) {
+    m_userdata=0;
+    m_style=0;
+  }
+  return self;
+}
+
 -(void)setSwellStyle:(LONG)style { m_style=style; }
 -(LONG)getSwellStyle { return m_style; }
+-(LONG_PTR)getSwellUserData { return m_userdata; }
+-(void)setSwellUserData:(LONG_PTR)val {   m_userdata=val; }
 @end
 
 @implementation SWELL_ComboBox
@@ -6889,6 +6909,8 @@ STANDARD_CONTROL_NEEDSDISPLAY_IMPL("combobox")
     m_ids=new WDL_PtrList<char>;
     m_ignore_selchg = -1;
     m_disable_menu = false;
+    m_userdata=0;
+    m_style=0;
   }
   return self;
 }
@@ -6912,6 +6934,8 @@ STANDARD_CONTROL_NEEDSDISPLAY_IMPL("combobox")
 {
   m_disable_menu=dis;
 }
+-(LONG_PTR)getSwellUserData { return m_userdata; }
+-(void)setSwellUserData:(LONG_PTR)val {   m_userdata=val; }
 
 @end
 
