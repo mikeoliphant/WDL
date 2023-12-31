@@ -34,6 +34,8 @@
 #include <windows.h>
 #endif
 
+#define WDL_CONVO_THREAD
+
 #ifdef WDL_CONVO_THREAD
 #ifndef _WIN32
 #include <pthread.h>

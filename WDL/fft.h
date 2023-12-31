@@ -34,6 +34,8 @@
 extern "C" {
 #endif
 
+#define WDL_FFT_REALSIZE 8
+
 #ifndef WDL_FFT_REALSIZE
 #define WDL_FFT_REALSIZE 4
 #endif

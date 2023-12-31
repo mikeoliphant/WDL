@@ -1083,7 +1083,6 @@ int WDL_ConvolutionEngine_Div::Avail(int wantSamples)
 }
 
 
-
 /****************************************************************
 **  threaded low latency version
 */
@@ -1159,14 +1158,18 @@ int WDL_ConvolutionEngine_Thread::SetImpulse(WDL_ImpulseBuffer *impulse, int max
   if (maxfft_size<0)maxfft_size=-maxfft_size;
   if (!maxfft_size || maxfft_size>16384) maxfft_size=16384;
 
+  maxfft_size = 1024;
+
   int samplesleft=impulse->GetLength()-impulse_offset;
   if (max_imp_size>0 && samplesleft>max_imp_size) samplesleft=max_imp_size;
 
   int impulsechunksize = maxfft_size;
   if (impulsechunksize >= samplesleft || !m_thread_enable) impulsechunksize=samplesleft;
+
   m_zl_engine.SetImpulse(impulse, maxfft_size, known_blocksize, impulsechunksize, impulse_offset, latency_allowed);
 
   samplesleft -= impulsechunksize;
+
   m_thread_engine.SetImpulse(impulse, maxfft_size*2, impulse_offset + impulsechunksize, samplesleft);
   m_thread_engine.m_zl_delaypos = samplesleft > 0 ? impulsechunksize : -1;
   m_thread_engine.m_zl_dumpage=0;
@@ -1465,7 +1468,7 @@ void *WDL_ConvolutionEngine_Thread::ThreadProc(void *lpParam)
         {
           if (_this->m_thread_engine.m_zl_delaypos > 0)
           {
-            _this->m_thread_engine.AddSilenceToOutput(_this->m_thread_engine.m_zl_delaypos); // add silence to output (to delay output to its correct time)
+            _this->m_thread_engine.AddSilenceToOutput(_this->m_thread_engine.m_zl_delaypos); // , _this->m_proc_nch); // add silence to output (to delay output to its correct time)
           }
           _this->m_need_feedsilence=false;
         }
@@ -1501,6 +1504,7 @@ void *WDL_ConvolutionEngine_Thread::ThreadProc(void *lpParam)
 }
 
 #endif // WDL_CONVO_THREAD
+
 
 
 #ifdef WDL_TEST_CONVO
