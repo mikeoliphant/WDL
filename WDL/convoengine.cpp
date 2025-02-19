@@ -45,10 +45,10 @@
   #endif
 #endif
 
-#if WDL_FFT_REALSIZE != 4 || defined(WDL_CONVO_WANT_FULLPRECISION_IMPULSE_STORAGE)
+//#if WDL_FFT_REALSIZE != 4 || defined(WDL_CONVO_WANT_FULLPRECISION_IMPULSE_STORAGE)
 #undef WDL_CONVO_SSE
 #undef WDL_CONVO_SSE3
-#endif
+//#endif
 
 #ifdef WDL_CONVO_SSE // define for SSE optimised CplxMul
 #include <xmmintrin.h>
